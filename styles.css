@@ -442,7 +442,6 @@ body.dark-mode .theme-toggle-top:hover {
   margin-top: 4px; margin-bottom: 12px;
 }
 
-/* SCAN + SEARCH ROW */
 .scan-search-row {
   display: flex;
   gap: 8px;
@@ -1033,6 +1032,48 @@ body.dark-mode #theme-btn-mobile:hover {
   font-weight: 500;
 }
 
+/* FLASHLIGHT BUTTON */
+.flashlight-btn {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  width: 48px;
+  height: 48px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  z-index: 5;
+  backdrop-filter: blur(10px);
+}
+
+.flashlight-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+  transform: scale(1.05);
+}
+
+.flashlight-btn.active {
+  background: #fbbf24;
+  color: #0f172a;
+  border-color: #fbbf24;
+  box-shadow: 0 0 30px rgba(251, 191, 36, 0.6);
+}
+
+.flashlight-btn.active i {
+  animation: bulbGlow 1.5s ease-in-out infinite;
+}
+
+@keyframes bulbGlow {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
 /* RECEIPT MODAL */
 .receipt-content {
   max-width: 480px;
@@ -1428,6 +1469,14 @@ body.dark-mode .cart-empty { color: #64748b !important; }
   
   .receipt-actions {
     grid-template-columns: 1fr;
+  }
+  
+  .flashlight-btn {
+    top: 20px;
+    right: 20px;
+    width: 56px;
+    height: 56px;
+    font-size: 28px;
   }
 }
 

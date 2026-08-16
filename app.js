@@ -26,6 +26,8 @@ let currentOrg = null;
 let saleInProgress = false;
 let codeReader = null;
 let currentReceipt = null;
+let currentStream = null;
+let flashlightOn = false;
 
 let TAX_RATE = 0.16;
 let CURRENCY = 'K';
@@ -452,7 +454,6 @@ async function completeSale() {
     await batch.commit();
     showToast('Sale Complete! ✓', `Total: ${money(total)} | Change: ${money(paid - total)}`, 'success');
     
-    // Show receipt modal
     showReceiptModal(orderData);
     
     clearCart();
@@ -694,10 +695,76 @@ async function openScanner() {
         handleScannedBarcode(scannedCode);
       }
     });
+    
+    // Check for flashlight support after camera starts
+    setTimeout(checkFlashlightSupport, 1000);
+    
   } catch (err) {
     console.error(err);
     status.textContent = '❌ Camera error: ' + err.message;
     showToast('Camera Error', err.message, 'error');
+  }
+}
+
+// ==========================================
+// FLASHLIGHT CONTROL
+// ==========================================
+async function checkFlashlightSupport() {
+  const video = document.getElementById('scanner-video');
+  const flashBtn = document.getElementById('flashlight-btn');
+  
+  if (!video.srcObject) {
+    flashBtn.style.display = 'none';
+    return;
+  }
+  
+  currentStream = video.srcObject;
+  const track = currentStream.getVideoTracks()[0];
+  
+  if (!track) {
+    flashBtn.style.display = 'none';
+    return;
+  }
+  
+  const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+  
+  if (capabilities.torch) {
+    flashBtn.style.display = 'flex';
+    flashBtn.classList.remove('active');
+    flashlightOn = false;
+    console.log('✓ Flashlight supported');
+  } else {
+    flashBtn.style.display = 'none';
+    console.log('✗ Flashlight not supported on this device');
+  }
+}
+
+async function toggleFlashlight() {
+  if (!currentStream) return;
+  
+  const track = currentStream.getVideoTracks()[0];
+  if (!track) return;
+  
+  const flashBtn = document.getElementById('flashlight-btn');
+  
+  try {
+    flashlightOn = !flashlightOn;
+    
+    await track.applyConstraints({
+      advanced: [{ torch: flashlightOn }]
+    });
+    
+    if (flashlightOn) {
+      flashBtn.classList.add('active');
+      showToast('Flashlight', 'Turned on', 'info');
+    } else {
+      flashBtn.classList.remove('active');
+      showToast('Flashlight', 'Turned off', 'info');
+    }
+  } catch (err) {
+    console.error('Flashlight error:', err);
+    showToast('Error', 'Could not toggle flashlight', 'error');
+    flashlightOn = !flashlightOn;
   }
 }
 
@@ -728,6 +795,28 @@ function handleScannedBarcode(code) {
 function closeScanner() {
   const modal = document.getElementById('scanner-modal');
   modal.classList.remove('active');
+  
+  // Turn off flashlight before closing
+  if (flashlightOn && currentStream) {
+    const track = currentStream.getVideoTracks()[0];
+    if (track) {
+      try {
+        track.applyConstraints({ advanced: [{ torch: false }] });
+      } catch (err) {
+        console.log('Could not turn off flashlight');
+      }
+    }
+  }
+  
+  flashlightOn = false;
+  currentStream = null;
+  
+  const flashBtn = document.getElementById('flashlight-btn');
+  if (flashBtn) {
+    flashBtn.classList.remove('active');
+    flashBtn.style.display = 'none';
+  }
+  
   if (codeReader) {
     codeReader.reset();
     codeReader = null;

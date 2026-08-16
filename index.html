@@ -13,7 +13,7 @@
   
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
   
-  <link rel="stylesheet" href="styles.css?v=7" />
+  <link rel="stylesheet" href="styles.css?v=8" />
 </head>
 <body>
   <div id="app">
@@ -459,7 +459,7 @@
       </main>
     </div>
 
-    <!-- BARCODE SCANNER MODAL -->
+    <!-- BARCODE SCANNER MODAL WITH FLASHLIGHT -->
     <div id="scanner-modal" class="modal">
       <div class="modal-content scanner-content">
         <div class="modal-header">
@@ -473,6 +473,9 @@
               <div class="scanner-frame"></div>
               <p class="scanner-hint">Point camera at barcode</p>
             </div>
+            <button id="flashlight-btn" class="flashlight-btn" onclick="toggleFlashlight()" style="display:none;">
+              <i class='bx bx-bulb'></i>
+            </button>
           </div>
           <div class="scanner-status" id="scanner-status">Starting camera...</div>
         </div>
@@ -518,6 +521,6 @@
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
