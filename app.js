@@ -24,6 +24,8 @@ let currentUser = null;
 let currentOrgId = null;
 let currentOrg = null;
 let saleInProgress = false;
+let codeReader = null;
+let currentReceipt = null;
 
 let TAX_RATE = 0.16;
 let CURRENCY = 'K';
@@ -42,6 +44,9 @@ function moneyValue(amount) {
   });
 }
 
+// ==========================================
+// SCREEN NAVIGATION
+// ==========================================
 function toggleScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
@@ -85,7 +90,9 @@ function showTab(tab) {
   autoCloseSidebar();
 }
 
+// ==========================================
 // SIDEBAR
+// ==========================================
 function toggleSidebar() {
   const sidebar = document.getElementById('sidebar');
   if (sidebar.classList.contains('open')) closeSidebar();
@@ -109,7 +116,7 @@ function autoCloseSidebar() {
 }
 
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') closeSidebar();
+  if (e.key === 'Escape') { closeSidebar(); closeScanner(); closeReceiptModal(); }
 });
 
 let touchStartX = 0;
@@ -124,7 +131,9 @@ document.addEventListener('touchend', function(e) {
   }
 });
 
+// ==========================================
 // PASSWORD FEATURES
+// ==========================================
 function togglePassword(inputId, iconEl) {
   const input = document.getElementById(inputId);
   if (input.type === 'password') {
@@ -180,7 +189,9 @@ async function sendPasswordReset() {
   }
 }
 
+// ==========================================
 // AUTH
+// ==========================================
 async function signup() {
   const orgName = document.getElementById('org-name').value.trim();
   const fullName = document.getElementById('full-name').value.trim();
@@ -252,7 +263,9 @@ async function loadUserData() {
   document.getElementById('user-avatar').textContent = userData.fullName.charAt(0).toUpperCase();
 }
 
+// ==========================================
 // PRODUCTS
+// ==========================================
 async function loadProducts() {
   if (!currentOrgId) return;
   const snap = await db.collection('organizations').doc(currentOrgId)
@@ -328,7 +341,9 @@ async function deleteProduct(id) {
   showToast('Deleted', 'Product removed', 'success');
 }
 
+// ==========================================
 // CART
+// ==========================================
 function addToCart(id) {
   const product = products.find(p => p.id === id);
   if (!product) return;
@@ -395,6 +410,9 @@ function handleSkuEnter(e) {
   else showToast('Not Found', 'Product not found: ' + sku, 'warning');
 }
 
+// ==========================================
+// COMPLETE SALE
+// ==========================================
 async function completeSale() {
   if (saleInProgress) return;
   if (cart.length === 0) { showToast('Empty Cart', 'Add items to cart first', 'warning'); return; }
@@ -433,6 +451,10 @@ async function completeSale() {
     }
     await batch.commit();
     showToast('Sale Complete! ✓', `Total: ${money(total)} | Change: ${money(paid - total)}`, 'success');
+    
+    // Show receipt modal
+    showReceiptModal(orderData);
+    
     clearCart();
     await loadProducts();
   } catch (err) {
@@ -446,7 +468,9 @@ async function completeSale() {
   }
 }
 
+// ==========================================
 // ORDERS
+// ==========================================
 async function loadOrders() {
   const snap = await db.collection('organizations').doc(currentOrgId)
     .collection('orders').orderBy('createdAt', 'desc').limit(50).get();
@@ -463,13 +487,16 @@ async function loadOrders() {
         <td>${money(o.total)}</td>
         <td>${money(o.amountPaid)}</td>
         <td>${money(o.changeGiven)}</td>
+        <td><button onclick="reprintReceipt('${doc.id}')" class="btn btn-primary" style="padding:6px 12px;font-size:12px"><i class='bx bx-receipt'></i> Receipt</button></td>
       </tr>
     `);
   });
-  tbody.innerHTML = rows.join('') || '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:40px;">No orders yet</td></tr>';
+  tbody.innerHTML = rows.join('') || '<tr><td colspan="6" style="text-align:center;color:var(--gray-400);padding:40px;">No orders yet</td></tr>';
 }
 
+// ==========================================
 // DASHBOARD
+// ==========================================
 async function loadDashboard() {
   if (!currentOrgId) return;
   document.getElementById('stat-total-products').textContent = products.length;
@@ -508,7 +535,9 @@ async function loadDashboard() {
   activityDiv.innerHTML = items.join('') || '<p style="color:var(--gray-500);text-align:center;padding:20px;">No activity yet</p>';
 }
 
-// DARK MODE (both buttons)
+// ==========================================
+// DARK MODE
+// ==========================================
 function toggleDarkMode() {
   const isDark = document.body.classList.toggle('dark-mode');
   localStorage.setItem('darkMode', isDark ? 'on' : 'off');
@@ -536,7 +565,9 @@ function loadDarkModePreference() {
   }
 }
 
+// ==========================================
 // THEME COLOR
+// ==========================================
 function setThemeColor(color) {
   document.documentElement.style.setProperty('--primary', color);
   const darker = shadeColor(color, -15);
@@ -568,7 +599,9 @@ function shadeColor(color, percent) {
   return '#' + RR + GG + BB;
 }
 
+// ==========================================
 // SETTINGS
+// ==========================================
 function loadSettings() {
   if (!currentOrg) return;
   document.getElementById('setting-biz-name').value = currentOrg.name || '';
@@ -625,7 +658,367 @@ async function saveTaxSettings() {
   }
 }
 
+// ==========================================
+// BARCODE SCANNER
+// ==========================================
+async function openScanner() {
+  const modal = document.getElementById('scanner-modal');
+  modal.classList.add('active');
+  
+  const status = document.getElementById('scanner-status');
+  status.textContent = 'Requesting camera access...';
+  
+  try {
+    codeReader = new ZXing.BrowserMultiFormatReader();
+    const videoInputDevices = await codeReader.listVideoInputDevices();
+    
+    if (videoInputDevices.length === 0) {
+      status.textContent = '❌ No camera found';
+      showToast('Error', 'No camera detected on this device', 'error');
+      return;
+    }
+    
+    let deviceId = videoInputDevices[0].deviceId;
+    const backCamera = videoInputDevices.find(d => 
+      d.label.toLowerCase().includes('back') || 
+      d.label.toLowerCase().includes('rear') ||
+      d.label.toLowerCase().includes('environment')
+    );
+    if (backCamera) deviceId = backCamera.deviceId;
+    
+    status.textContent = '📷 Scanning... Point at barcode';
+    
+    codeReader.decodeFromVideoDevice(deviceId, 'scanner-video', (result, err) => {
+      if (result) {
+        const scannedCode = result.getText();
+        handleScannedBarcode(scannedCode);
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    status.textContent = '❌ Camera error: ' + err.message;
+    showToast('Camera Error', err.message, 'error');
+  }
+}
+
+function handleScannedBarcode(code) {
+  if (navigator.vibrate) navigator.vibrate(100);
+  
+  const product = products.find(p => p.sku === code);
+  
+  if (product) {
+    addToCart(product.id);
+    document.getElementById('scanner-status').textContent = `✓ Added: ${product.name}`;
+    showToast('Scanned!', `Added: ${product.name}`, 'success');
+    setTimeout(closeScanner, 800);
+  } else {
+    document.getElementById('scanner-status').textContent = `❌ Not found: ${code}`;
+    showToast('Not Found', `Barcode: ${code}`, 'warning');
+    setTimeout(() => {
+      if (confirm(`Product with barcode "${code}" not found.\n\nWould you like to add it as a new product?`)) {
+        closeScanner();
+        showTab('products');
+        document.getElementById('new-sku').value = code;
+        document.getElementById('new-name').focus();
+      }
+    }, 1000);
+  }
+}
+
+function closeScanner() {
+  const modal = document.getElementById('scanner-modal');
+  modal.classList.remove('active');
+  if (codeReader) {
+    codeReader.reset();
+    codeReader = null;
+  }
+}
+
+// ==========================================
+// RECEIPT GENERATION
+// ==========================================
+function generateReceiptHTML(orderData) {
+  const date = new Date();
+  const dateStr = date.toLocaleString('en-ZM', {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+  const orderNum = 'R' + Date.now().toString().slice(-8);
+  
+  let html = `
+    <div class="receipt-header-print">
+      <h4>${escapeHtml(currentOrg?.name || 'BUSINESS')}</h4>
+      ${currentOrg?.address ? `<p>${escapeHtml(currentOrg.address)}</p>` : ''}
+      ${currentOrg?.phone ? `<p>Tel: ${escapeHtml(currentOrg.phone)}</p>` : ''}
+      ${currentOrg?.email ? `<p>${escapeHtml(currentOrg.email)}</p>` : ''}
+    </div>
+    <div style="text-align:center;padding:8px 0;font-size:11px;">
+      <p><strong>RECEIPT</strong></p>
+      <p>Receipt #: ${orderNum}</p>
+      <p>${dateStr}</p>
+      <p>Cashier: ${escapeHtml(document.getElementById('user-name').textContent)}</p>
+    </div>
+    <div style="border-top:1px dashed #ccc;border-bottom:1px dashed #ccc;padding:8px 0;margin:8px 0;">
+      <div style="display:flex;justify-content:space-between;font-weight:700;font-size:11px;">
+        <span>ITEM</span>
+        <span>TOTAL</span>
+      </div>
+    </div>
+  `;
+  
+  orderData.items.forEach(item => {
+    html += `
+      <div class="receipt-item">
+        <div class="receipt-item-name">${escapeHtml(item.name)}</div>
+        <div class="receipt-item-details">
+          <span>${item.qty} x ${money(item.price)}</span>
+          <span><strong>${money(item.lineTotal)}</strong></span>
+        </div>
+      </div>
+    `;
+  });
+  
+  html += `
+    <div class="receipt-totals">
+      <div class="receipt-total-row">
+        <span>Subtotal:</span>
+        <span>${money(orderData.subtotal)}</span>
+      </div>
+      <div class="receipt-total-row">
+        <span>VAT (${(TAX_RATE * 100).toFixed(0)}%):</span>
+        <span>${money(orderData.tax)}</span>
+      </div>
+      <div class="receipt-total-row grand">
+        <span>TOTAL:</span>
+        <span>${money(orderData.total)}</span>
+      </div>
+      <div class="receipt-total-row">
+        <span>Paid:</span>
+        <span>${money(orderData.amountPaid)}</span>
+      </div>
+      <div class="receipt-total-row">
+        <span>Change:</span>
+        <span>${money(orderData.changeGiven)}</span>
+      </div>
+    </div>
+    <div class="receipt-footer-print">
+      <p><strong>Thank you for your business!</strong></p>
+      <p>Please come again 🙏</p>
+    </div>
+  `;
+  
+  return { html, orderNum, dateStr };
+}
+
+function showReceiptModal(orderData) {
+  currentReceipt = orderData;
+  const { html } = generateReceiptHTML(orderData);
+  document.getElementById('receipt-preview').innerHTML = html;
+  document.getElementById('receipt-modal').classList.add('active');
+}
+
+function closeReceiptModal() {
+  document.getElementById('receipt-modal').classList.remove('active');
+  currentReceipt = null;
+}
+
+function printReceipt() {
+  const receiptHTML = document.getElementById('receipt-preview').innerHTML;
+  const printWindow = window.open('', '', 'width=400,height=600');
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Receipt</title>
+      <style>
+        body { font-family: 'Courier New', monospace; font-size: 12px; padding: 20px; max-width: 300px; margin: 0 auto; }
+        .receipt-header-print { text-align: center; padding-bottom: 12px; border-bottom: 2px dashed #000; margin-bottom: 12px; }
+        .receipt-header-print h4 { font-size: 16px; margin-bottom: 4px; }
+        .receipt-header-print p { font-size: 11px; margin: 2px 0; }
+        .receipt-item { padding: 6px 0; border-bottom: 1px dotted #999; }
+        .receipt-item-name { font-weight: bold; }
+        .receipt-item-details { display: flex; justify-content: space-between; font-size: 11px; }
+        .receipt-totals { padding-top: 12px; margin-top: 12px; border-top: 2px dashed #000; }
+        .receipt-total-row { display: flex; justify-content: space-between; padding: 3px 0; }
+        .receipt-total-row.grand { font-size: 14px; font-weight: bold; padding: 8px 0; border-top: 1px solid #000; border-bottom: 1px solid #000; margin: 6px 0; }
+        .receipt-footer-print { text-align: center; margin-top: 16px; padding-top: 12px; border-top: 2px dashed #000; font-size: 11px; }
+      </style>
+    </head>
+    <body>${receiptHTML}</body>
+    </html>
+  `);
+  printWindow.document.close();
+  setTimeout(() => {
+    printWindow.print();
+    printWindow.close();
+  }, 250);
+}
+
+function downloadReceiptPDF() {
+  if (!currentReceipt) return;
+  
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({
+    unit: 'mm',
+    format: [80, 297]
+  });
+  
+  let y = 10;
+  const centerX = 40;
+  
+  doc.setFontSize(14);
+  doc.setFont(undefined, 'bold');
+  doc.text(currentOrg?.name || 'BUSINESS', centerX, y, { align: 'center' });
+  y += 6;
+  
+  doc.setFontSize(8);
+  doc.setFont(undefined, 'normal');
+  if (currentOrg?.address) {
+    doc.text(currentOrg.address, centerX, y, { align: 'center' });
+    y += 4;
+  }
+  if (currentOrg?.phone) {
+    doc.text('Tel: ' + currentOrg.phone, centerX, y, { align: 'center' });
+    y += 4;
+  }
+  if (currentOrg?.email) {
+    doc.text(currentOrg.email, centerX, y, { align: 'center' });
+    y += 4;
+  }
+  
+  y += 2;
+  doc.line(5, y, 75, y);
+  y += 5;
+  
+  const orderNum = 'R' + Date.now().toString().slice(-8);
+  const dateStr = new Date().toLocaleString('en-ZM');
+  
+  doc.setFont(undefined, 'bold');
+  doc.text('RECEIPT', centerX, y, { align: 'center' });
+  y += 5;
+  
+  doc.setFont(undefined, 'normal');
+  doc.text('Receipt #: ' + orderNum, 5, y);
+  y += 4;
+  doc.text('Date: ' + dateStr, 5, y);
+  y += 4;
+  doc.text('Cashier: ' + document.getElementById('user-name').textContent, 5, y);
+  y += 5;
+  
+  doc.line(5, y, 75, y);
+  y += 5;
+  
+  doc.setFont(undefined, 'bold');
+  doc.text('ITEM', 5, y);
+  doc.text('TOTAL', 75, y, { align: 'right' });
+  y += 4;
+  doc.setFont(undefined, 'normal');
+  
+  currentReceipt.items.forEach(item => {
+    doc.setFont(undefined, 'bold');
+    const itemName = item.name.length > 30 ? item.name.substring(0, 30) + '...' : item.name;
+    doc.text(itemName, 5, y);
+    y += 4;
+    doc.setFont(undefined, 'normal');
+    doc.text(`${item.qty} x ${money(item.price)}`, 5, y);
+    doc.text(money(item.lineTotal), 75, y, { align: 'right' });
+    y += 5;
+  });
+  
+  y += 2;
+  doc.line(5, y, 75, y);
+  y += 5;
+  
+  doc.text('Subtotal:', 5, y);
+  doc.text(money(currentReceipt.subtotal), 75, y, { align: 'right' });
+  y += 4;
+  
+  doc.text(`VAT (${(TAX_RATE * 100).toFixed(0)}%):`, 5, y);
+  doc.text(money(currentReceipt.tax), 75, y, { align: 'right' });
+  y += 5;
+  
+  doc.setFont(undefined, 'bold');
+  doc.setFontSize(11);
+  doc.text('TOTAL:', 5, y);
+  doc.text(money(currentReceipt.total), 75, y, { align: 'right' });
+  y += 6;
+  
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(8);
+  doc.text('Paid:', 5, y);
+  doc.text(money(currentReceipt.amountPaid), 75, y, { align: 'right' });
+  y += 4;
+  
+  doc.text('Change:', 5, y);
+  doc.text(money(currentReceipt.changeGiven), 75, y, { align: 'right' });
+  y += 6;
+  
+  doc.line(5, y, 75, y);
+  y += 5;
+  
+  doc.setFont(undefined, 'bold');
+  doc.text('Thank you for your business!', centerX, y, { align: 'center' });
+  y += 4;
+  doc.setFont(undefined, 'normal');
+  doc.text('Please come again', centerX, y, { align: 'center' });
+  
+  doc.save(`Receipt_${orderNum}.pdf`);
+  showToast('Downloaded!', 'Receipt saved as PDF', 'success');
+}
+
+async function shareReceipt() {
+  if (!currentReceipt) return;
+  
+  const orderNum = 'R' + Date.now().toString().slice(-8);
+  const businessName = currentOrg?.name || 'Business';
+  
+  let text = `🧾 *${businessName}* - Receipt #${orderNum}\n\n`;
+  currentReceipt.items.forEach(item => {
+    text += `${item.name}\n  ${item.qty} x ${money(item.price)} = ${money(item.lineTotal)}\n`;
+  });
+  text += `\nSubtotal: ${money(currentReceipt.subtotal)}`;
+  text += `\nVAT: ${money(currentReceipt.tax)}`;
+  text += `\n*TOTAL: ${money(currentReceipt.total)}*`;
+  text += `\nPaid: ${money(currentReceipt.amountPaid)}`;
+  text += `\nChange: ${money(currentReceipt.changeGiven)}`;
+  text += `\n\n_Thank you for your business!_`;
+  
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: `Receipt from ${businessName}`,
+        text: text
+      });
+      showToast('Shared!', 'Receipt shared successfully', 'success');
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        showToast('Error', 'Could not share', 'error');
+      }
+    }
+  } else {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Copied!', 'Receipt copied to clipboard. Paste in WhatsApp!', 'success');
+    } catch (err) {
+      const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+      window.open(whatsappUrl, '_blank');
+    }
+  }
+}
+
+function reprintReceipt(orderId) {
+  db.collection('organizations').doc(currentOrgId)
+    .collection('orders').doc(orderId).get()
+    .then(doc => {
+      if (doc.exists) {
+        showReceiptModal(doc.data());
+      }
+    });
+}
+
+// ==========================================
 // UI HELPERS
+// ==========================================
 function showToast(title, message, type = 'success') {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
@@ -657,6 +1050,9 @@ function escapeHtml(str) {
   }[m]));
 }
 
+// ==========================================
+// AUTO LOGIN CHECK
+// ==========================================
 auth.onAuthStateChanged(async (user) => {
   if (user) {
     currentUser = user;

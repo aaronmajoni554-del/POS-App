@@ -13,7 +13,7 @@
   
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
   
-  <link rel="stylesheet" href="styles.css?v=6" />
+  <link rel="stylesheet" href="styles.css?v=7" />
 </head>
 <body>
   <div id="app">
@@ -22,15 +22,13 @@
     <div id="login-screen" class="screen active auth-screen">
       <div class="auth-container">
         <div class="auth-brand">
-          <div class="brand-logo">
-            <i class='bx bx-store-alt'></i>
-          </div>
+          <div class="brand-logo"><i class='bx bx-store-alt'></i></div>
           <h1>ModernPOS</h1>
           <p>The complete point of sale solution</p>
           <div class="features-list">
             <div><i class='bx bx-check-circle'></i> Multi-tenant business support</div>
             <div><i class='bx bx-check-circle'></i> Real-time inventory tracking</div>
-            <div><i class='bx bx-check-circle'></i> Cloud-based & secure</div>
+            <div><i class='bx bx-check-circle'></i> Barcode scanning & receipts</div>
             <div><i class='bx bx-check-circle'></i> Works on any device</div>
           </div>
         </div>
@@ -68,9 +66,7 @@
     <div id="forgot-screen" class="screen auth-screen">
       <div class="auth-container">
         <div class="auth-brand">
-          <div class="brand-logo">
-            <i class='bx bx-lock-open-alt'></i>
-          </div>
+          <div class="brand-logo"><i class='bx bx-lock-open-alt'></i></div>
           <h1>Reset Password</h1>
           <p>We'll send you a secure reset link</p>
           <div class="features-list">
@@ -104,9 +100,7 @@
     <div id="signup-screen" class="screen auth-screen">
       <div class="auth-container">
         <div class="auth-brand">
-          <div class="brand-logo">
-            <i class='bx bx-rocket'></i>
-          </div>
+          <div class="brand-logo"><i class='bx bx-rocket'></i></div>
           <h1>Get Started</h1>
           <p>Set up your business in seconds</p>
           <div class="features-list">
@@ -151,7 +145,6 @@
     <!-- POS APP -->
     <div id="pos-screen" class="screen app-screen">
       
-      <!-- SIDEBAR -->
       <aside class="sidebar" id="sidebar">
         <div class="sidebar-brand">
           <div class="brand-icon"><i class='bx bx-store-alt'></i></div>
@@ -199,13 +192,10 @@
         </div>
       </aside>
 
-      <!-- Dark overlay when sidebar is open on mobile -->
       <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
 
-      <!-- MAIN CONTENT -->
       <main class="main-content">
         
-        <!-- Mobile top bar -->
         <div class="mobile-topbar">
           <button class="menu-toggle" onclick="toggleSidebar()">
             <i class='bx bx-menu'></i>
@@ -228,11 +218,17 @@
               <div class="panel-header">
                 <div>
                   <h2><i class='bx bx-grid-alt'></i> Products</h2>
-                  <p class="subtitle">Tap a product to add to cart</p>
+                  <p class="subtitle">Tap a product or scan barcode</p>
                 </div>
-                <div class="search-box">
-                  <i class='bx bx-search'></i>
-                  <input type="text" id="sku-input" placeholder="Scan barcode or type SKU..." onkeypress="handleSkuEnter(event)" />
+                <div class="scan-search-row">
+                  <div class="search-box">
+                    <i class='bx bx-search'></i>
+                    <input type="text" id="sku-input" placeholder="Type SKU or barcode..." onkeypress="handleSkuEnter(event)" />
+                  </div>
+                  <button onclick="openScanner()" class="btn-scan" title="Scan barcode">
+                    <i class='bx bx-barcode-reader'></i>
+                    <span>Scan</span>
+                  </button>
                 </div>
               </div>
               <div id="products-grid" class="products-grid"></div>
@@ -340,6 +336,7 @@
                     <th>Total (K)</th>
                     <th>Paid (K)</th>
                     <th>Change (K)</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody id="orders-tbody"></tbody>
@@ -462,6 +459,53 @@
       </main>
     </div>
 
+    <!-- BARCODE SCANNER MODAL -->
+    <div id="scanner-modal" class="modal">
+      <div class="modal-content scanner-content">
+        <div class="modal-header">
+          <h3><i class='bx bx-barcode-reader'></i> Scan Barcode</h3>
+          <button onclick="closeScanner()" class="modal-close"><i class='bx bx-x'></i></button>
+        </div>
+        <div class="scanner-body">
+          <div id="scanner-container">
+            <video id="scanner-video" autoplay playsinline></video>
+            <div class="scanner-overlay">
+              <div class="scanner-frame"></div>
+              <p class="scanner-hint">Point camera at barcode</p>
+            </div>
+          </div>
+          <div class="scanner-status" id="scanner-status">Starting camera...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RECEIPT MODAL -->
+    <div id="receipt-modal" class="modal">
+      <div class="modal-content receipt-content">
+        <div class="modal-header">
+          <h3><i class='bx bx-receipt'></i> Sale Complete!</h3>
+          <button onclick="closeReceiptModal()" class="modal-close"><i class='bx bx-x'></i></button>
+        </div>
+        <div class="receipt-body">
+          <div id="receipt-preview"></div>
+          <div class="receipt-actions">
+            <button onclick="printReceipt()" class="btn btn-primary">
+              <i class='bx bx-printer'></i> Print
+            </button>
+            <button onclick="downloadReceiptPDF()" class="btn btn-primary">
+              <i class='bx bx-download'></i> Download PDF
+            </button>
+            <button onclick="shareReceipt()" class="btn btn-primary">
+              <i class='bx bx-share-alt'></i> Share
+            </button>
+            <button onclick="closeReceiptModal()" class="btn btn-secondary">
+              <i class='bx bx-x'></i> Skip
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="toast-container"></div>
 
   </div>
@@ -469,6 +513,11 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-  <script src="app.js?v=6"></script>
+  
+  <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  
+  <script src="app.js?v=7"></script>
 </body>
 </html>
