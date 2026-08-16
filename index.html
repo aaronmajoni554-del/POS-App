@@ -13,7 +13,7 @@
   
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
   
-  <link rel="stylesheet" href="styles.css?v=8" />
+  <link rel="stylesheet" href="styles.css?v=10" />
 </head>
 <body>
   <div id="app">
@@ -217,19 +217,38 @@
             <div class="products-panel">
               <div class="panel-header">
                 <div>
-                  <h2><i class='bx bx-grid-alt'></i> Products</h2>
-                  <p class="subtitle">Tap a product or scan barcode</p>
+                  <h2><i class='bx bx-grid-alt'></i> Add Products to Sale</h2>
+                  <p class="subtitle">Search, type SKU or scan barcode</p>
                 </div>
                 <div class="scan-search-row">
-                  <div class="search-box">
-                    <i class='bx bx-search'></i>
-                    <input type="text" id="sku-input" placeholder="Type SKU or barcode..." onkeypress="handleSkuEnter(event)" />
+                  <div class="search-box-wrapper">
+                    <div class="search-box">
+                      <i class='bx bx-search'></i>
+                      <input 
+                        type="text" 
+                        id="sku-input" 
+                        placeholder="Type to search products..." 
+                        oninput="handleSearchInput(this.value)" 
+                        onkeypress="handleSkuEnter(event)"
+                        onkeydown="handleSuggestionKeys(event)"
+                        onfocus="showSuggestionsIfAvailable()"
+                        autocomplete="off"
+                      />
+                      <button onclick="clearSearch()" class="clear-search-btn" id="clear-search-btn" style="display:none;">
+                        <i class='bx bx-x'></i>
+                      </button>
+                    </div>
+                    <div id="suggestions-dropdown" class="suggestions-dropdown"></div>
                   </div>
                   <button onclick="openScanner()" class="btn-scan" title="Scan barcode">
                     <i class='bx bx-barcode-reader'></i>
                     <span>Scan</span>
                   </button>
                 </div>
+              </div>
+              <div id="search-info" class="search-results-count" style="display:none;">
+                <span id="search-info-text"></span>
+                <button onclick="clearSearch()"><i class='bx bx-x'></i> Clear</button>
               </div>
               <div id="products-grid" class="products-grid"></div>
             </div>
@@ -459,7 +478,7 @@
       </main>
     </div>
 
-    <!-- BARCODE SCANNER MODAL WITH FLASHLIGHT -->
+    <!-- BARCODE SCANNER MODAL -->
     <div id="scanner-modal" class="modal">
       <div class="modal-content scanner-content">
         <div class="modal-header">
@@ -516,11 +535,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-  
   <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
-  
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>

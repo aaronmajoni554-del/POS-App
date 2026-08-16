@@ -28,6 +28,9 @@ let codeReader = null;
 let currentReceipt = null;
 let currentStream = null;
 let flashlightOn = false;
+let searchTimeout = null;
+let currentSuggestions = [];
+let highlightedIndex = -1;
 
 let TAX_RATE = 0.16;
 let CURRENCY = 'K';
@@ -118,7 +121,7 @@ function autoCloseSidebar() {
 }
 
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') { closeSidebar(); closeScanner(); closeReceiptModal(); }
+  if (e.key === 'Escape') { closeSidebar(); closeScanner(); closeReceiptModal(); hideSuggestions(); }
 });
 
 let touchStartX = 0;
@@ -279,23 +282,55 @@ async function loadProducts() {
 
 function renderProducts() {
   const grid = document.getElementById('products-grid');
+  const searchInfo = document.getElementById('search-info');
   const cartCountEl = document.getElementById('cart-count');
   if (cartCountEl) cartCountEl.textContent = `${cart.reduce((s,i)=>s+i.qty,0)} items`;
+  
+  if (searchInfo) searchInfo.style.display = 'none';
+  
   if (products.length === 0) {
-    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--gray-400);"><i class="bx bx-package" style="font-size:64px;display:block;margin-bottom:12px;"></i><p>No products yet. Go to Products tab to add some.</p></div>';
-    return;
-  }
-  grid.innerHTML = products.map(p => {
-    const stockClass = p.qtyOnHand === 0 ? 'out' : (p.qtyOnHand < 10 ? 'low' : '');
-    return `
-      <div class="product-card" onclick="addToCart('${p.id}')">
-        <div class="product-icon"><i class='bx bx-cube'></i></div>
-        <div class="product-name">${escapeHtml(p.name)}</div>
-        <div class="price">${money(p.price)}</div>
-        <div class="stock ${stockClass}">${p.qtyOnHand} in stock</div>
+    grid.innerHTML = `
+      <div class="empty-scan-state" style="grid-column:1/-1;">
+        <div class="empty-icon"><i class='bx bx-package'></i></div>
+        <h3>No Products Yet</h3>
+        <p>Add products to your inventory first!</p>
+        <div class="hint-actions">
+          <div class="hint-action" onclick="showTab('products')" style="cursor:pointer;">
+            <div class="hint-icon"><i class='bx bx-plus'></i></div>
+            <div class="hint-text">
+              <strong>Add Products</strong>
+              <small>Go to Products tab</small>
+            </div>
+          </div>
+        </div>
       </div>
     `;
-  }).join('');
+    return;
+  }
+  
+  grid.innerHTML = `
+    <div class="empty-scan-state" style="grid-column:1/-1;">
+      <div class="empty-icon"><i class='bx bx-search-alt'></i></div>
+      <h3>Ready to Sell!</h3>
+      <p>Search products, type SKU, or scan a barcode above</p>
+      <div class="hint-actions">
+        <div class="hint-action" onclick="document.getElementById('sku-input').focus()" style="cursor:pointer;">
+          <div class="hint-icon"><i class='bx bx-search'></i></div>
+          <div class="hint-text">
+            <strong>Type to Search</strong>
+            <small>Suggestions will appear</small>
+          </div>
+        </div>
+        <div class="hint-action" onclick="openScanner()" style="cursor:pointer;">
+          <div class="hint-icon"><i class='bx bx-barcode-reader'></i></div>
+          <div class="hint-text">
+            <strong>Scan Barcode</strong>
+            <small>Use camera to scan product</small>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 async function addProduct() {
@@ -342,6 +377,177 @@ async function deleteProduct(id) {
   renderProductsTable();
   showToast('Deleted', 'Product removed', 'success');
 }
+
+// ==========================================
+// SMART SEARCH WITH SUGGESTIONS
+// ==========================================
+function handleSearchInput(value) {
+  const query = value.trim();
+  const clearBtn = document.getElementById('clear-search-btn');
+  
+  if (clearBtn) {
+    clearBtn.style.display = query ? 'flex' : 'none';
+  }
+  
+  clearTimeout(searchTimeout);
+  
+  if (!query) {
+    hideSuggestions();
+    renderProducts();
+    return;
+  }
+  
+  searchTimeout = setTimeout(() => {
+    showSuggestions(query);
+  }, 150);
+}
+
+function showSuggestions(query) {
+  const lowerQuery = query.toLowerCase();
+  
+  const filtered = products.filter(p => 
+    p.name.toLowerCase().includes(lowerQuery) ||
+    p.sku.toLowerCase().includes(lowerQuery) ||
+    (p.barcode && p.barcode.toLowerCase().includes(lowerQuery))
+  ).slice(0, 8);
+  
+  currentSuggestions = filtered;
+  highlightedIndex = -1;
+  
+  const dropdown = document.getElementById('suggestions-dropdown');
+  
+  if (filtered.length === 0) {
+    dropdown.innerHTML = `
+      <div class="suggestion-empty">
+        <i class='bx bx-search-alt-2'></i>
+        <p>No products found for "${escapeHtml(query)}"</p>
+      </div>
+    `;
+    dropdown.classList.add('active');
+    return;
+  }
+  
+  dropdown.innerHTML = `
+    <div class="suggestion-header">
+      <span>${filtered.length} SUGGESTION${filtered.length !== 1 ? 'S' : ''}</span>
+      <span>↑↓ to navigate • Enter to add</span>
+    </div>
+    ${filtered.map((p, index) => {
+      const stockClass = p.qtyOnHand === 0 ? 'out-stock' : (p.qtyOnHand < 10 ? 'low-stock' : 'in-stock');
+      const stockText = p.qtyOnHand === 0 ? 'Out' : p.qtyOnHand < 10 ? `${p.qtyOnHand} left` : `${p.qtyOnHand}`;
+      const highlightedName = highlightMatch(p.name, query);
+      
+      return `
+        <div class="suggestion-item" data-index="${index}" onclick="selectSuggestion('${p.id}')">
+          <div class="suggestion-icon"><i class='bx bx-cube'></i></div>
+          <div class="suggestion-details">
+            <div class="suggestion-name">${highlightedName}</div>
+            <div class="suggestion-meta">
+              <span class="sku">📋 ${escapeHtml(p.sku)}</span>
+              <span class="stock-badge ${stockClass}">${stockText}</span>
+            </div>
+          </div>
+          <div class="suggestion-price">${money(p.price)}</div>
+        </div>
+      `;
+    }).join('')}
+  `;
+  
+  dropdown.classList.add('active');
+}
+
+function hideSuggestions() {
+  const dropdown = document.getElementById('suggestions-dropdown');
+  if (dropdown) {
+    dropdown.classList.remove('active');
+  }
+  currentSuggestions = [];
+  highlightedIndex = -1;
+}
+
+function selectSuggestion(productId) {
+  const product = products.find(p => p.id === productId);
+  if (!product) return;
+  
+  if (product.qtyOnHand === 0) {
+    showToast('Out of Stock', product.name + ' is out of stock', 'warning');
+    return;
+  }
+  
+  addToCart(productId);
+  showToast('Added!', product.name, 'success');
+  
+  document.getElementById('sku-input').value = '';
+  const clearBtn = document.getElementById('clear-search-btn');
+  if (clearBtn) clearBtn.style.display = 'none';
+  hideSuggestions();
+  renderProducts();
+}
+
+function handleSuggestionKeys(e) {
+  const dropdown = document.getElementById('suggestions-dropdown');
+  if (!dropdown.classList.contains('active') || currentSuggestions.length === 0) {
+    return;
+  }
+  
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    highlightedIndex = Math.min(highlightedIndex + 1, currentSuggestions.length - 1);
+    updateHighlight();
+  }
+  else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    highlightedIndex = Math.max(highlightedIndex - 1, -1);
+    updateHighlight();
+  }
+  else if (e.key === 'Escape') {
+    hideSuggestions();
+  }
+}
+
+function updateHighlight() {
+  const items = document.querySelectorAll('.suggestion-item');
+  items.forEach((item, index) => {
+    if (index === highlightedIndex) {
+      item.classList.add('highlighted');
+      item.scrollIntoView({ block: 'nearest' });
+    } else {
+      item.classList.remove('highlighted');
+    }
+  });
+}
+
+function highlightMatch(text, query) {
+  const escaped = escapeHtml(text);
+  const escapedQuery = escapeHtml(query);
+  const regex = new RegExp(`(${escapedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return escaped.replace(regex, '<mark>$1</mark>');
+}
+
+function showSuggestionsIfAvailable() {
+  const value = document.getElementById('sku-input').value.trim();
+  if (value) {
+    showSuggestions(value);
+  }
+}
+
+function clearSearch() {
+  const input = document.getElementById('sku-input');
+  input.value = '';
+  const clearBtn = document.getElementById('clear-search-btn');
+  if (clearBtn) clearBtn.style.display = 'none';
+  hideSuggestions();
+  renderProducts();
+  input.focus();
+}
+
+// Close suggestions when clicking outside
+document.addEventListener('click', function(e) {
+  const wrapper = document.querySelector('.search-box-wrapper');
+  if (wrapper && !wrapper.contains(e.target)) {
+    hideSuggestions();
+  }
+});
 
 // ==========================================
 // CART
@@ -405,11 +611,25 @@ function clearCart() {
 
 function handleSkuEnter(e) {
   if (e.key !== 'Enter') return;
-  const sku = e.target.value.trim();
-  if (!sku) return;
-  const product = products.find(p => p.sku === sku);
-  if (product) { addToCart(product.id); e.target.value = ''; }
-  else showToast('Not Found', 'Product not found: ' + sku, 'warning');
+  
+  // If a suggestion is highlighted, select it
+  if (highlightedIndex >= 0 && currentSuggestions[highlightedIndex]) {
+    selectSuggestion(currentSuggestions[highlightedIndex].id);
+    return;
+  }
+  
+  const query = e.target.value.trim();
+  if (!query) return;
+  
+  // Try exact SKU/barcode match
+  let product = products.find(p => p.sku === query);
+  if (!product) product = products.find(p => p.barcode === query);
+  
+  if (product) {
+    selectSuggestion(product.id);
+  } else {
+    showToast('Not Found', 'No product matches: ' + query, 'warning');
+  }
 }
 
 // ==========================================
@@ -660,7 +880,7 @@ async function saveTaxSettings() {
 }
 
 // ==========================================
-// BARCODE SCANNER - FIXED FLASHLIGHT
+// BARCODE SCANNER
 // ==========================================
 async function openScanner() {
   const modal = document.getElementById('scanner-modal');
@@ -669,7 +889,6 @@ async function openScanner() {
   const status = document.getElementById('scanner-status');
   const flashBtn = document.getElementById('flashlight-btn');
   
-  // Hide flashlight button initially
   if (flashBtn) flashBtn.style.display = 'none';
   
   status.textContent = 'Requesting camera access...';
@@ -701,7 +920,6 @@ async function openScanner() {
       }
     });
     
-    // Check for flashlight multiple times to ensure detection
     setTimeout(checkFlashlightSupport, 500);
     setTimeout(checkFlashlightSupport, 1500);
     setTimeout(checkFlashlightSupport, 3000);
@@ -714,7 +932,7 @@ async function openScanner() {
 }
 
 // ==========================================
-// FLASHLIGHT CONTROL - IMPROVED
+// FLASHLIGHT CONTROL
 // ==========================================
 async function checkFlashlightSupport() {
   const video = document.getElementById('scanner-video');
@@ -739,18 +957,15 @@ async function checkFlashlightSupport() {
       if (!flashlightOn) {
         flashBtn.classList.remove('active');
       }
-      console.log('✓ Flashlight supported and button shown');
+      console.log('✓ Flashlight supported');
     } else {
-      // Try alternative method
       try {
         await track.applyConstraints({
           advanced: [{ torch: false }]
         });
         flashBtn.style.display = 'flex';
-        console.log('✓ Flashlight might be supported (fallback)');
       } catch (e) {
         flashBtn.style.display = 'none';
-        console.log('✗ Flashlight not supported on this device');
       }
     }
   } catch (err) {
@@ -790,9 +1005,14 @@ async function toggleFlashlight() {
 function handleScannedBarcode(code) {
   if (navigator.vibrate) navigator.vibrate(100);
   
-  const product = products.find(p => p.sku === code);
+  const product = products.find(p => p.sku === code || p.barcode === code);
   
   if (product) {
+    if (product.qtyOnHand === 0) {
+      document.getElementById('scanner-status').textContent = `⚠️ Out of stock: ${product.name}`;
+      showToast('Out of Stock', product.name, 'warning');
+      return;
+    }
     addToCart(product.id);
     document.getElementById('scanner-status').textContent = `✓ Added: ${product.name}`;
     showToast('Scanned!', `Added: ${product.name}`, 'success');
@@ -815,7 +1035,6 @@ function closeScanner() {
   const modal = document.getElementById('scanner-modal');
   modal.classList.remove('active');
   
-  // Turn off flashlight before closing
   if (flashlightOn && currentStream) {
     const track = currentStream.getVideoTracks()[0];
     if (track) {
