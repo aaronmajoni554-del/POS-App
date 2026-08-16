@@ -25,9 +25,8 @@ let currentOrgId = null;
 let currentOrg = null;
 let saleInProgress = false;
 
-// Zambian settings
-const TAX_RATE = 0.16;
-const CURRENCY = 'K';
+let TAX_RATE = 0.16;
+let CURRENCY = 'K';
 
 function money(amount) {
   return `${CURRENCY} ${Number(amount).toLocaleString('en-ZM', { 
@@ -55,15 +54,24 @@ function showSignup() { toggleScreen('signup-screen'); }
 function showForgotPassword() {
   toggleScreen('forgot-screen');
   const loginEmail = document.getElementById('email').value;
-  if (loginEmail) {
-    document.getElementById('forgot-email').value = loginEmail;
-  }
+  if (loginEmail) document.getElementById('forgot-email').value = loginEmail;
 }
 
 async function showPOS() {
   toggleScreen('pos-screen');
   await loadUserData();
   await loadProducts();
+  loadDarkModePreference();
+  
+  if (currentOrg?.themeColor) {
+    setThemeColor(currentOrg.themeColor);
+  }
+  if (currentOrg?.taxRate !== undefined) {
+    TAX_RATE = currentOrg.taxRate;
+  }
+  if (currentOrg?.currency) {
+    CURRENCY = currentOrg.currency;
+  }
 }
 
 function showTab(tab) {
@@ -72,12 +80,19 @@ function showTab(tab) {
   document.getElementById(tab + '-tab').classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
   
-  const titles = { pos: 'Point of Sale', products: 'Products', orders: 'Orders', dashboard: 'Dashboard' };
+  const titles = { 
+    pos: 'Point of Sale', 
+    products: 'Products', 
+    orders: 'Orders', 
+    dashboard: 'Dashboard',
+    settings: 'Settings'
+  };
   updateMobileTitle(titles[tab]);
   
   if (tab === 'products') renderProductsTable();
   if (tab === 'orders') loadOrders();
   if (tab === 'dashboard') loadDashboard();
+  if (tab === 'settings') loadSettings();
   
   autoCloseSidebar();
 }
@@ -87,11 +102,8 @@ function showTab(tab) {
 // ==========================================
 function toggleSidebar() {
   const sidebar = document.getElementById('sidebar');
-  if (sidebar.classList.contains('open')) {
-    closeSidebar();
-  } else {
-    openSidebar();
-  }
+  if (sidebar.classList.contains('open')) closeSidebar();
+  else openSidebar();
 }
 
 function openSidebar() {
@@ -107,9 +119,7 @@ function closeSidebar() {
 }
 
 function autoCloseSidebar() {
-  if (window.innerWidth <= 968) {
-    setTimeout(closeSidebar, 200);
-  }
+  if (window.innerWidth <= 968) setTimeout(closeSidebar, 200);
 }
 
 document.addEventListener('keydown', function(e) {
@@ -148,7 +158,6 @@ function checkPasswordStrength() {
   const password = document.getElementById('signup-password').value;
   const strengthBar = document.getElementById('password-strength');
   if (!strengthBar) return;
-  
   strengthBar.className = 'password-strength';
   if (password.length === 0) return;
   
@@ -171,8 +180,7 @@ async function sendPasswordReset() {
   
   if (!email) { msg.textContent = 'Please enter your email address'; return; }
   if (!email.includes('@') || !email.includes('.')) {
-    msg.textContent = 'Please enter a valid email address';
-    return;
+    msg.textContent = 'Please enter a valid email address'; return;
   }
   
   msg.textContent = 'Sending reset link...';
@@ -217,6 +225,7 @@ async function signup() {
     const orgRef = await db.collection('organizations').add({
       name: orgName, email: email, ownerId: uid,
       taxRate: TAX_RATE, currency: CURRENCY, country: 'Zambia',
+      themeColor: '#6366f1',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
@@ -550,6 +559,142 @@ async function loadDashboard() {
     `);
   });
   activityDiv.innerHTML = items.join('') || '<p style="color:var(--gray-500);text-align:center;padding:20px;">No activity yet</p>';
+}
+
+// ==========================================
+// DARK MODE
+// ==========================================
+function toggleDarkMode() {
+  const isDark = document.body.classList.toggle('dark-mode');
+  localStorage.setItem('darkMode', isDark ? 'on' : 'off');
+  const icon = document.querySelector('#theme-btn i');
+  if (isDark) {
+    icon.classList.remove('bx-moon');
+    icon.classList.add('bx-sun');
+    showToast('Dark Mode', 'Enabled', 'info');
+  } else {
+    icon.classList.remove('bx-sun');
+    icon.classList.add('bx-moon');
+    showToast('Light Mode', 'Enabled', 'info');
+  }
+}
+
+function loadDarkModePreference() {
+  if (localStorage.getItem('darkMode') === 'on') {
+    document.body.classList.add('dark-mode');
+    const icon = document.querySelector('#theme-btn i');
+    if (icon) {
+      icon.classList.remove('bx-moon');
+      icon.classList.add('bx-sun');
+    }
+  }
+}
+
+// ==========================================
+// THEME COLOR
+// ==========================================
+function setThemeColor(color) {
+  document.documentElement.style.setProperty('--primary', color);
+  const darker = shadeColor(color, -15);
+  document.documentElement.style.setProperty('--primary-dark', darker);
+  const lighter = shadeColor(color, 40);
+  document.documentElement.style.setProperty('--primary-light', lighter);
+  
+  localStorage.setItem('themeColor', color);
+  
+  if (currentOrgId) {
+    db.collection('organizations').doc(currentOrgId)
+      .update({ themeColor: color })
+      .catch(() => {});
+  }
+  
+  document.querySelectorAll('.color-swatch').forEach(sw => {
+    sw.classList.toggle('active', sw.dataset.color === color);
+  });
+}
+
+function shadeColor(color, percent) {
+  let R = parseInt(color.substring(1,3), 16);
+  let G = parseInt(color.substring(3,5), 16);
+  let B = parseInt(color.substring(5,7), 16);
+  R = parseInt(R * (100 + percent) / 100);
+  G = parseInt(G * (100 + percent) / 100);
+  B = parseInt(B * (100 + percent) / 100);
+  R = Math.min(255, Math.max(0, R));
+  G = Math.min(255, Math.max(0, G));
+  B = Math.min(255, Math.max(0, B));
+  const RR = R.toString(16).padStart(2, '0');
+  const GG = G.toString(16).padStart(2, '0');
+  const BB = B.toString(16).padStart(2, '0');
+  return '#' + RR + GG + BB;
+}
+
+// ==========================================
+// SETTINGS
+// ==========================================
+function loadSettings() {
+  if (!currentOrg) return;
+  
+  document.getElementById('setting-biz-name').value = currentOrg.name || '';
+  document.getElementById('setting-phone').value = currentOrg.phone || '';
+  document.getElementById('setting-address').value = currentOrg.address || '';
+  document.getElementById('setting-email').value = currentOrg.email || '';
+  document.getElementById('setting-tax').value = ((currentOrg.taxRate || TAX_RATE) * 100).toFixed(2);
+  document.getElementById('setting-currency').value = currentOrg.currency || CURRENCY;
+  
+  const color = currentOrg.themeColor || '#6366f1';
+  document.querySelectorAll('.color-swatch').forEach(sw => {
+    sw.classList.toggle('active', sw.dataset.color === color);
+  });
+}
+
+async function saveBusinessInfo() {
+  const name = document.getElementById('setting-biz-name').value.trim();
+  const phone = document.getElementById('setting-phone').value.trim();
+  const address = document.getElementById('setting-address').value.trim();
+  const email = document.getElementById('setting-email').value.trim();
+  
+  if (!name) { showToast('Error', 'Business name is required', 'error'); return; }
+  
+  try {
+    await db.collection('organizations').doc(currentOrgId).update({
+      name, phone, address, email
+    });
+    currentOrg.name = name;
+    currentOrg.phone = phone;
+    currentOrg.address = address;
+    currentOrg.email = email;
+    document.getElementById('business-name').textContent = name;
+    showToast('Success', 'Business info updated', 'success');
+  } catch (err) {
+    showToast('Error', err.message, 'error');
+  }
+}
+
+async function saveTaxSettings() {
+  const taxPercent = parseFloat(document.getElementById('setting-tax').value);
+  const currency = document.getElementById('setting-currency').value.trim() || 'K';
+  
+  if (isNaN(taxPercent) || taxPercent < 0 || taxPercent > 100) {
+    showToast('Error', 'Enter valid tax rate (0-100)', 'error');
+    return;
+  }
+  
+  try {
+    await db.collection('organizations').doc(currentOrgId).update({
+      taxRate: taxPercent / 100,
+      currency: currency
+    });
+    currentOrg.taxRate = taxPercent / 100;
+    currentOrg.currency = currency;
+    TAX_RATE = taxPercent / 100;
+    CURRENCY = currency;
+    renderCart();
+    renderProducts();
+    showToast('Success', 'Tax settings updated', 'success');
+  } catch (err) {
+    showToast('Error', err.message, 'error');
+  }
 }
 
 // ==========================================
