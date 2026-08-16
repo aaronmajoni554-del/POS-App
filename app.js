@@ -526,14 +526,14 @@ async function loadDashboard() {
     items.push(`
       <div style="padding:14px 0;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;">
         <div>
-          <div style="font-weight:600;color:var(--gray-900);font-size:14px;">Sale of ${itemCount} items</div>
-          <small style="color:var(--gray-500);">${date}</small>
+          <div style="font-weight:600;font-size:14px;">Sale of ${itemCount} items</div>
+          <small>${date}</small>
         </div>
         <div style="font-weight:700;color:var(--success);font-size:16px;">${money(o.total)}</div>
       </div>
     `);
   });
-  activityDiv.innerHTML = items.join('') || '<p style="color:var(--gray-500);text-align:center;padding:20px;">No activity yet</p>';
+  activityDiv.innerHTML = items.join('') || '<p style="text-align:center;padding:20px;">No activity yet</p>';
 }
 
 // ==========================================
@@ -660,13 +660,18 @@ async function saveTaxSettings() {
 }
 
 // ==========================================
-// BARCODE SCANNER
+// BARCODE SCANNER - FIXED FLASHLIGHT
 // ==========================================
 async function openScanner() {
   const modal = document.getElementById('scanner-modal');
   modal.classList.add('active');
   
   const status = document.getElementById('scanner-status');
+  const flashBtn = document.getElementById('flashlight-btn');
+  
+  // Hide flashlight button initially
+  if (flashBtn) flashBtn.style.display = 'none';
+  
   status.textContent = 'Requesting camera access...';
   
   try {
@@ -696,8 +701,10 @@ async function openScanner() {
       }
     });
     
-    // Check for flashlight support after camera starts
-    setTimeout(checkFlashlightSupport, 1000);
+    // Check for flashlight multiple times to ensure detection
+    setTimeout(checkFlashlightSupport, 500);
+    setTimeout(checkFlashlightSupport, 1500);
+    setTimeout(checkFlashlightSupport, 3000);
     
   } catch (err) {
     console.error(err);
@@ -707,14 +714,13 @@ async function openScanner() {
 }
 
 // ==========================================
-// FLASHLIGHT CONTROL
+// FLASHLIGHT CONTROL - IMPROVED
 // ==========================================
 async function checkFlashlightSupport() {
   const video = document.getElementById('scanner-video');
   const flashBtn = document.getElementById('flashlight-btn');
   
-  if (!video.srcObject) {
-    flashBtn.style.display = 'none';
+  if (!video || !video.srcObject) {
     return;
   }
   
@@ -722,20 +728,33 @@ async function checkFlashlightSupport() {
   const track = currentStream.getVideoTracks()[0];
   
   if (!track) {
-    flashBtn.style.display = 'none';
     return;
   }
   
-  const capabilities = track.getCapabilities ? track.getCapabilities() : {};
-  
-  if (capabilities.torch) {
-    flashBtn.style.display = 'flex';
-    flashBtn.classList.remove('active');
-    flashlightOn = false;
-    console.log('✓ Flashlight supported');
-  } else {
-    flashBtn.style.display = 'none';
-    console.log('✗ Flashlight not supported on this device');
+  try {
+    const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+    
+    if (capabilities.torch) {
+      flashBtn.style.display = 'flex';
+      if (!flashlightOn) {
+        flashBtn.classList.remove('active');
+      }
+      console.log('✓ Flashlight supported and button shown');
+    } else {
+      // Try alternative method
+      try {
+        await track.applyConstraints({
+          advanced: [{ torch: false }]
+        });
+        flashBtn.style.display = 'flex';
+        console.log('✓ Flashlight might be supported (fallback)');
+      } catch (e) {
+        flashBtn.style.display = 'none';
+        console.log('✗ Flashlight not supported on this device');
+      }
+    }
+  } catch (err) {
+    console.log('Flashlight check error:', err);
   }
 }
 
