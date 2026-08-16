@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>POS System</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen" class="screen active">
+      <div class="card">
+        <h1>🏪 POS Login</h1>
+        <input type="email" id="email" placeholder="Email" />
+        <input type="password" id="password" placeholder="Password" />
+        <button onclick="login()" class="btn-primary">Login</button>
+        <p class="link-text">No account? <a href="#" onclick="showSignup()">Register your business</a></p>
+        <p id="login-msg" class="msg"></p>
+      </div>
+    </div>
+
+    <!-- SIGNUP SCREEN -->
+    <div id="signup-screen" class="screen">
+      <div class="card">
+        <h1>📝 Register Business</h1>
+        <input type="text" id="org-name" placeholder="Business Name" />
+        <input type="text" id="full-name" placeholder="Your Full Name" />
+        <input type="email" id="signup-email" placeholder="Email" />
+        <input type="password" id="signup-password" placeholder="Password (min 6 chars)" />
+        <button onclick="signup()" class="btn-primary">Create Account</button>
+        <p class="link-text">Have an account? <a href="#" onclick="showLogin()">Login</a></p>
+        <p id="signup-msg" class="msg"></p>
+      </div>
+    </div>
+
+    <!-- POS SCREEN -->
+    <div id="pos-screen" class="screen">
+      <div class="header">
+        <div>
+          <h2 id="business-name">Point of Sale</h2>
+          <small id="user-info"></small>
+        </div>
+        <div class="header-actions">
+          <button onclick="showTab('pos')" class="tab-btn active" id="tab-pos">POS</button>
+          <button onclick="showTab('products')" class="tab-btn" id="tab-products">Products</button>
+          <button onclick="showTab('orders')" class="tab-btn" id="tab-orders">Orders</button>
+          <button onclick="logout()" class="logout">Logout</button>
+        </div>
+      </div>
+
+      <!-- POS TAB -->
+      <div id="pos-tab" class="tab-content active">
+        <div class="pos-layout">
+          <div class="products-panel">
+            <input type="text" id="sku-input" placeholder="Scan / Enter SKU and press Enter" onkeypress="handleSkuEnter(event)" />
+            <h3>Products</h3>
+            <div id="products-grid" class="grid"></div>
+          </div>
+
+          <div class="cart-panel">
+            <h3>🛒 Cart</h3>
+            <div id="cart-items"></div>
+            <div class="totals">
+              <div class="total-row"><span>Subtotal:</span><span>$<span id="subtotal">0.00</span></span></div>
+              <div class="total-row"><span>Tax (8.25%):</span><span>$<span id="tax">0.00</span></span></div>
+              <div class="total-row big"><span>TOTAL:</span><span>$<span id="total">0.00</span></span></div>
+              <input type="number" id="amount-paid" placeholder="Amount Paid" step="0.01" oninput="renderCart()" />
+              <div class="total-row"><span>Change:</span><span>$<span id="change">0.00</span></span></div>
+              <div class="actions">
+                <button onclick="clearCart()" class="btn-danger">Clear</button>
+                <button onclick="completeSale()" class="btn-success">PAY</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PRODUCTS TAB -->
+      <div id="products-tab" class="tab-content">
+        <h3>📦 Manage Products</h3>
+        <div class="form-inline">
+          <input type="text" id="new-sku" placeholder="SKU" />
+          <input type="text" id="new-name" placeholder="Product Name" />
+          <input type="number" id="new-price" placeholder="Price" step="0.01" />
+          <input type="number" id="new-qty" placeholder="Qty" />
+          <button onclick="addProduct()" class="btn-primary">Add Product</button>
+        </div>
+        <table id="products-table">
+          <thead>
+            <tr><th>SKU</th><th>Name</th><th>Price</th><th>Stock</th><th>Action</th></tr>
+          </thead>
+          <tbody id="products-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- ORDERS TAB -->
+      <div id="orders-tab" class="tab-content">
+        <h3>📊 Recent Orders</h3>
+        <table id="orders-table">
+          <thead>
+            <tr><th>Date</th><th>Items</th><th>Total</th><th>Paid</th><th>Change</th></tr>
+          </thead>
+          <tbody id="orders-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDK (compat version - works in browser directly) -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
