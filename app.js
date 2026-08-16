@@ -26,10 +26,9 @@ let currentOrg = null;
 let saleInProgress = false;
 
 // Zambian settings
-const TAX_RATE = 0.16;  // 16% VAT
+const TAX_RATE = 0.16;
 const CURRENCY = 'K';
 
-// Format money in Kwacha
 function money(amount) {
   return `${CURRENCY} ${Number(amount).toLocaleString('en-ZM', { 
     minimumFractionDigits: 2, 
@@ -53,6 +52,14 @@ function toggleScreen(id) {
 }
 function showLogin() { toggleScreen('login-screen'); }
 function showSignup() { toggleScreen('signup-screen'); }
+function showForgotPassword() {
+  toggleScreen('forgot-screen');
+  const loginEmail = document.getElementById('email').value;
+  if (loginEmail) {
+    document.getElementById('forgot-email').value = loginEmail;
+  }
+}
+
 async function showPOS() {
   toggleScreen('pos-screen');
   await loadUserData();
@@ -72,11 +79,120 @@ function showTab(tab) {
   if (tab === 'orders') loadOrders();
   if (tab === 'dashboard') loadDashboard();
   
-  document.querySelector('.sidebar')?.classList.remove('open');
+  autoCloseSidebar();
 }
 
 // ==========================================
-// AUTH - SIGNUP
+// SIDEBAR CONTROLS
+// ==========================================
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar.classList.contains('open')) {
+    closeSidebar();
+  } else {
+    openSidebar();
+  }
+}
+
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-overlay').classList.add('active');
+  document.body.classList.add('sidebar-open');
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('active');
+  document.body.classList.remove('sidebar-open');
+}
+
+function autoCloseSidebar() {
+  if (window.innerWidth <= 968) {
+    setTimeout(closeSidebar, 200);
+  }
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeSidebar();
+});
+
+let touchStartX = 0;
+document.addEventListener('touchstart', function(e) {
+  touchStartX = e.touches[0].clientX;
+});
+document.addEventListener('touchend', function(e) {
+  const touchEndX = e.changedTouches[0].clientX;
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar && sidebar.classList.contains('open') && touchStartX - touchEndX > 50) {
+    closeSidebar();
+  }
+});
+
+// ==========================================
+// PASSWORD FEATURES
+// ==========================================
+function togglePassword(inputId, iconEl) {
+  const input = document.getElementById(inputId);
+  if (input.type === 'password') {
+    input.type = 'text';
+    iconEl.classList.remove('bx-hide');
+    iconEl.classList.add('bx-show');
+  } else {
+    input.type = 'password';
+    iconEl.classList.remove('bx-show');
+    iconEl.classList.add('bx-hide');
+  }
+}
+
+function checkPasswordStrength() {
+  const password = document.getElementById('signup-password').value;
+  const strengthBar = document.getElementById('password-strength');
+  if (!strengthBar) return;
+  
+  strengthBar.className = 'password-strength';
+  if (password.length === 0) return;
+  
+  let strength = 0;
+  if (password.length >= 6) strength++;
+  if (password.length >= 10) strength++;
+  if (/[A-Z]/.test(password) && /[a-z]/.test(password)) strength++;
+  if (/[0-9]/.test(password)) strength++;
+  if (/[^A-Za-z0-9]/.test(password)) strength++;
+  
+  if (strength <= 2) strengthBar.classList.add('weak');
+  else if (strength <= 3) strengthBar.classList.add('medium');
+  else strengthBar.classList.add('strong');
+}
+
+async function sendPasswordReset() {
+  const email = document.getElementById('forgot-email').value.trim();
+  const msg = document.getElementById('forgot-msg');
+  msg.className = 'msg';
+  
+  if (!email) { msg.textContent = 'Please enter your email address'; return; }
+  if (!email.includes('@') || !email.includes('.')) {
+    msg.textContent = 'Please enter a valid email address';
+    return;
+  }
+  
+  msg.textContent = 'Sending reset link...';
+  
+  try {
+    await auth.sendPasswordResetEmail(email);
+    msg.className = 'msg success';
+    msg.innerHTML = '✓ Reset link sent! Check your email inbox and spam folder.';
+    showToast('Email Sent', 'Check your inbox for the reset link', 'success');
+    setTimeout(() => { showLogin(); msg.textContent = ''; }, 4000);
+  } catch (err) {
+    if (err.code === 'auth/user-not-found') msg.textContent = 'No account found with this email';
+    else if (err.code === 'auth/invalid-email') msg.textContent = 'Invalid email format';
+    else if (err.code === 'auth/too-many-requests') msg.textContent = 'Too many attempts. Try again later.';
+    else msg.textContent = err.message;
+  }
+}
+
+// ==========================================
+// AUTH
 // ==========================================
 async function signup() {
   const orgName = document.getElementById('org-name').value.trim();
@@ -99,33 +215,22 @@ async function signup() {
     const uid = userCred.user.uid;
 
     const orgRef = await db.collection('organizations').add({
-      name: orgName,
-      email: email,
-      ownerId: uid,
-      taxRate: TAX_RATE,
-      currency: CURRENCY,
-      country: 'Zambia',
+      name: orgName, email: email, ownerId: uid,
+      taxRate: TAX_RATE, currency: CURRENCY, country: 'Zambia',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
     await db.collection('users').doc(uid).set({
-      fullName: fullName,
-      email: email,
-      organizationId: orgRef.id,
-      role: 'admin',
+      fullName: fullName, email: email,
+      organizationId: orgRef.id, role: 'admin',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
     msg.className = 'msg success';
     msg.textContent = '✓ Account created! Loading...';
-  } catch (err) {
-    msg.textContent = err.message;
-  }
+  } catch (err) { msg.textContent = err.message; }
 }
 
-// ==========================================
-// AUTH - LOGIN
-// ==========================================
 async function login() {
   const email = document.getElementById('email').value.trim();
   const password = document.getElementById('password').value;
@@ -135,34 +240,22 @@ async function login() {
   try {
     await auth.signInWithEmailAndPassword(email, password);
     msg.textContent = '';
-  } catch (err) {
-    msg.textContent = err.message;
-  }
+  } catch (err) { msg.textContent = err.message; }
 }
 
-// ==========================================
-// AUTH - LOGOUT
-// ==========================================
 async function logout() {
   await auth.signOut();
-  cart = [];
-  products = [];
-  currentUser = null;
-  currentOrgId = null;
-  currentOrg = null;
+  cart = []; products = [];
+  currentUser = null; currentOrgId = null; currentOrg = null;
   showLogin();
 }
 
-// ==========================================
-// LOAD USER DATA
-// ==========================================
 async function loadUserData() {
   if (!currentUser) return;
   const userDoc = await db.collection('users').doc(currentUser.uid).get();
   if (!userDoc.exists) { 
     showToast('Error', 'User profile not found', 'error'); 
-    logout(); 
-    return; 
+    logout(); return; 
   }
   const userData = userDoc.data();
   currentOrgId = userData.organizationId;
@@ -177,7 +270,7 @@ async function loadUserData() {
 }
 
 // ==========================================
-// PRODUCTS - LOAD
+// PRODUCTS
 // ==========================================
 async function loadProducts() {
   if (!currentOrgId) return;
@@ -188,9 +281,6 @@ async function loadProducts() {
   renderProducts();
 }
 
-// ==========================================
-// PRODUCTS - RENDER GRID (POS)
-// ==========================================
 function renderProducts() {
   const grid = document.getElementById('products-grid');
   const cartCountEl = document.getElementById('cart-count');
@@ -213,9 +303,6 @@ function renderProducts() {
   }).join('');
 }
 
-// ==========================================
-// PRODUCTS - ADD NEW
-// ==========================================
 async function addProduct() {
   const sku = document.getElementById('new-sku').value.trim();
   const name = document.getElementById('new-name').value.trim();
@@ -225,7 +312,6 @@ async function addProduct() {
     showToast('Missing Info', 'Please fill SKU, Name, and Price', 'warning'); 
     return; 
   }
-
   try {
     await db.collection('organizations').doc(currentOrgId)
       .collection('products').add({
@@ -239,14 +325,9 @@ async function addProduct() {
     await loadProducts();
     renderProductsTable();
     showToast('Success', `${name} added successfully`, 'success');
-  } catch (err) { 
-    showToast('Error', err.message, 'error'); 
-  }
+  } catch (err) { showToast('Error', err.message, 'error'); }
 }
 
-// ==========================================
-// PRODUCTS - RENDER TABLE
-// ==========================================
 function renderProductsTable() {
   const tbody = document.getElementById('products-tbody');
   tbody.innerHTML = products.map(p => `
@@ -260,9 +341,6 @@ function renderProductsTable() {
   `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:40px;">No products yet</td></tr>';
 }
 
-// ==========================================
-// PRODUCTS - DELETE
-// ==========================================
 async function deleteProduct(id) {
   if (!confirm('Delete this product?')) return;
   await db.collection('organizations').doc(currentOrgId)
@@ -273,7 +351,7 @@ async function deleteProduct(id) {
 }
 
 // ==========================================
-// CART FUNCTIONS
+// CART
 // ==========================================
 function addToCart(id) {
   const product = products.find(p => p.id === id);
@@ -342,15 +420,12 @@ function handleSkuEnter(e) {
 }
 
 // ==========================================
-// COMPLETE SALE (with double-click protection)
+// COMPLETE SALE
 // ==========================================
 async function completeSale() {
   if (saleInProgress) return;
-
-  if (cart.length === 0) { 
-    showToast('Empty Cart', 'Add items to cart first', 'warning'); 
-    return; 
-  }
+  if (cart.length === 0) { showToast('Empty Cart', 'Add items to cart first', 'warning'); return; }
+  
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
@@ -380,7 +455,6 @@ async function completeSale() {
       cashierId: currentUser.uid,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
-
     await db.collection('organizations').doc(currentOrgId)
       .collection('orders').add(orderData);
 
@@ -407,7 +481,7 @@ async function completeSale() {
 }
 
 // ==========================================
-// ORDERS - LOAD
+// ORDERS
 // ==========================================
 async function loadOrders() {
   const snap = await db.collection('organizations').doc(currentOrgId)
@@ -432,52 +506,11 @@ async function loadOrders() {
 }
 
 // ==========================================
-// UI ENHANCEMENTS
-// ==========================================
-function toggleSidebar() {
-  document.querySelector('.sidebar').classList.toggle('open');
-}
-
-function showToast(title, message, type = 'success') {
-  const container = document.getElementById('toast-container');
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  
-  const icons = {
-    success: 'bx-check-circle',
-    error: 'bx-x-circle',
-    warning: 'bx-error',
-    info: 'bx-info-circle'
-  };
-  
-  toast.innerHTML = `
-    <i class='bx ${icons[type]}'></i>
-    <div class="toast-content">
-      <div class="toast-title">${title}</div>
-      <div class="toast-message">${message}</div>
-    </div>
-  `;
-  
-  container.appendChild(toast);
-  setTimeout(() => {
-    toast.style.animation = 'slideIn 0.3s reverse';
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
-}
-
-function updateMobileTitle(title) {
-  const el = document.getElementById('mobile-title');
-  if (el) el.textContent = title;
-}
-
-// ==========================================
 // DASHBOARD
 // ==========================================
 async function loadDashboard() {
   if (!currentOrgId) return;
-  
   document.getElementById('stat-total-products').textContent = products.length;
-  
   const lowStock = products.filter(p => p.qtyOnHand < 10).length;
   document.getElementById('stat-low-stock').textContent = lowStock;
   
@@ -486,12 +519,9 @@ async function loadDashboard() {
   const todayTimestamp = firebase.firestore.Timestamp.fromDate(today);
   
   const snap = await db.collection('organizations').doc(currentOrgId)
-    .collection('orders')
-    .where('createdAt', '>=', todayTimestamp)
-    .get();
+    .collection('orders').where('createdAt', '>=', todayTimestamp).get();
   
-  let todaySales = 0;
-  let todayOrders = 0;
+  let todaySales = 0, todayOrders = 0;
   snap.forEach(doc => {
     todaySales += doc.data().total || 0;
     todayOrders++;
@@ -501,10 +531,7 @@ async function loadDashboard() {
   document.getElementById('stat-today-orders').textContent = todayOrders;
   
   const recentSnap = await db.collection('organizations').doc(currentOrgId)
-    .collection('orders')
-    .orderBy('createdAt', 'desc')
-    .limit(5)
-    .get();
+    .collection('orders').orderBy('createdAt', 'desc').limit(5).get();
   
   const activityDiv = document.getElementById('recent-activity');
   const items = [];
@@ -526,8 +553,32 @@ async function loadDashboard() {
 }
 
 // ==========================================
-// UTILS
+// UI HELPERS
 // ==========================================
+function showToast(title, message, type = 'success') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  const icons = { success: 'bx-check-circle', error: 'bx-x-circle', warning: 'bx-error', info: 'bx-info-circle' };
+  toast.innerHTML = `
+    <i class='bx ${icons[type]}'></i>
+    <div class="toast-content">
+      <div class="toast-title">${title}</div>
+      <div class="toast-message">${message}</div>
+    </div>
+  `;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'slideIn 0.3s reverse';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+function updateMobileTitle(title) {
+  const el = document.getElementById('mobile-title');
+  if (el) el.textContent = title;
+}
+
 function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/[&<>"']/g, m => ({

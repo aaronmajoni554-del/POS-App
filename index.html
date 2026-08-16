@@ -46,12 +46,56 @@
           <div class="input-group">
             <i class='bx bx-lock-alt'></i>
             <input type="password" id="password" placeholder="Password" />
+            <i class='bx bx-hide toggle-password' onclick="togglePassword('password', this)"></i>
+          </div>
+          <div class="form-options">
+            <label class="remember-me">
+              <input type="checkbox" id="remember-me" />
+              <span>Remember me</span>
+            </label>
+            <a href="#" onclick="showForgotPassword()" class="forgot-link">Forgot password?</a>
           </div>
           <button onclick="login()" class="btn btn-primary btn-block">
             <i class='bx bx-log-in'></i> Sign In
           </button>
           <p class="link-text">New here? <a href="#" onclick="showSignup()">Create a business account</a></p>
           <p id="login-msg" class="msg"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- FORGOT PASSWORD SCREEN -->
+    <div id="forgot-screen" class="screen auth-screen">
+      <div class="auth-container">
+        <div class="auth-brand">
+          <div class="brand-logo">
+            <i class='bx bx-lock-open-alt'></i>
+          </div>
+          <h1>Reset Password</h1>
+          <p>We'll send you a secure reset link</p>
+          <div class="features-list">
+            <div><i class='bx bx-envelope'></i> Check your email inbox</div>
+            <div><i class='bx bx-time'></i> Link expires in 1 hour</div>
+            <div><i class='bx bx-shield'></i> Secure & encrypted</div>
+            <div><i class='bx bx-help-circle'></i> Contact support if needed</div>
+          </div>
+        </div>
+        <div class="auth-form">
+          <div class="form-header">
+            <h2>Forgot your password?</h2>
+            <p>Enter your email and we'll send you a reset link</p>
+          </div>
+          <div class="input-group">
+            <i class='bx bx-envelope'></i>
+            <input type="email" id="forgot-email" placeholder="Enter your email address" />
+          </div>
+          <button onclick="sendPasswordReset()" class="btn btn-primary btn-block">
+            <i class='bx bx-send'></i> Send Reset Link
+          </button>
+          <p class="link-text">
+            <a href="#" onclick="showLogin()"><i class='bx bx-arrow-back'></i> Back to sign in</a>
+          </p>
+          <p id="forgot-msg" class="msg"></p>
         </div>
       </div>
     </div>
@@ -91,8 +135,10 @@
           </div>
           <div class="input-group">
             <i class='bx bx-lock-alt'></i>
-            <input type="password" id="signup-password" placeholder="Password (min 6 characters)" />
+            <input type="password" id="signup-password" placeholder="Password (min 6 characters)" oninput="checkPasswordStrength()" />
+            <i class='bx bx-hide toggle-password' onclick="togglePassword('signup-password', this)"></i>
           </div>
+          <div id="password-strength" class="password-strength"></div>
           <button onclick="signup()" class="btn btn-primary btn-block">
             <i class='bx bx-check-circle'></i> Create Account
           </button>
@@ -105,13 +151,17 @@
     <!-- POS APP -->
     <div id="pos-screen" class="screen app-screen">
       
-      <aside class="sidebar">
+      <!-- SIDEBAR -->
+      <aside class="sidebar" id="sidebar">
         <div class="sidebar-brand">
           <div class="brand-icon"><i class='bx bx-store-alt'></i></div>
           <div class="brand-text">
             <h3 id="business-name">Business</h3>
             <small>POS System</small>
           </div>
+          <button class="sidebar-close" onclick="closeSidebar()">
+            <i class='bx bx-x'></i>
+          </button>
         </div>
         
         <nav class="sidebar-nav">
@@ -137,20 +187,25 @@
               <small id="user-role">role</small>
             </div>
           </div>
-          <button onclick="logout()" class="btn btn-logout">
+          <button onclick="logout()" class="btn btn-logout" title="Logout">
             <i class='bx bx-log-out'></i>
           </button>
         </div>
       </aside>
 
+      <!-- Dark overlay when sidebar is open on mobile -->
+      <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+      <!-- MAIN CONTENT -->
       <main class="main-content">
         
+        <!-- Mobile top bar -->
         <div class="mobile-topbar">
           <button class="menu-toggle" onclick="toggleSidebar()">
             <i class='bx bx-menu'></i>
           </button>
           <h3 id="mobile-title">Point of Sale</h3>
-          <button onclick="logout()" class="btn-icon">
+          <button onclick="logout()" class="btn-icon" title="Logout">
             <i class='bx bx-log-out'></i>
           </button>
         </div>
