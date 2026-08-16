@@ -42,9 +42,6 @@ function moneyValue(amount) {
   });
 }
 
-// ==========================================
-// SCREEN NAVIGATION
-// ==========================================
 function toggleScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
@@ -63,15 +60,9 @@ async function showPOS() {
   await loadProducts();
   loadDarkModePreference();
   
-  if (currentOrg?.themeColor) {
-    setThemeColor(currentOrg.themeColor);
-  }
-  if (currentOrg?.taxRate !== undefined) {
-    TAX_RATE = currentOrg.taxRate;
-  }
-  if (currentOrg?.currency) {
-    CURRENCY = currentOrg.currency;
-  }
+  if (currentOrg?.themeColor) setThemeColor(currentOrg.themeColor);
+  if (currentOrg?.taxRate !== undefined) TAX_RATE = currentOrg.taxRate;
+  if (currentOrg?.currency) CURRENCY = currentOrg.currency;
 }
 
 function showTab(tab) {
@@ -81,11 +72,8 @@ function showTab(tab) {
   document.getElementById('tab-' + tab).classList.add('active');
   
   const titles = { 
-    pos: 'Point of Sale', 
-    products: 'Products', 
-    orders: 'Orders', 
-    dashboard: 'Dashboard',
-    settings: 'Settings'
+    pos: 'Point of Sale', products: 'Products', 
+    orders: 'Orders', dashboard: 'Dashboard', settings: 'Settings'
   };
   updateMobileTitle(titles[tab]);
   
@@ -97,9 +85,7 @@ function showTab(tab) {
   autoCloseSidebar();
 }
 
-// ==========================================
-// SIDEBAR CONTROLS
-// ==========================================
+// SIDEBAR
 function toggleSidebar() {
   const sidebar = document.getElementById('sidebar');
   if (sidebar.classList.contains('open')) closeSidebar();
@@ -138,9 +124,7 @@ document.addEventListener('touchend', function(e) {
   }
 });
 
-// ==========================================
 // PASSWORD FEATURES
-// ==========================================
 function togglePassword(inputId, iconEl) {
   const input = document.getElementById(inputId);
   if (input.type === 'password') {
@@ -177,14 +161,11 @@ async function sendPasswordReset() {
   const email = document.getElementById('forgot-email').value.trim();
   const msg = document.getElementById('forgot-msg');
   msg.className = 'msg';
-  
   if (!email) { msg.textContent = 'Please enter your email address'; return; }
   if (!email.includes('@') || !email.includes('.')) {
     msg.textContent = 'Please enter a valid email address'; return;
   }
-  
   msg.textContent = 'Sending reset link...';
-  
   try {
     await auth.sendPasswordResetEmail(email);
     msg.className = 'msg success';
@@ -199,9 +180,7 @@ async function sendPasswordReset() {
   }
 }
 
-// ==========================================
 // AUTH
-// ==========================================
 async function signup() {
   const orgName = document.getElementById('org-name').value.trim();
   const fullName = document.getElementById('full-name').value.trim();
@@ -221,20 +200,17 @@ async function signup() {
   try {
     const userCred = await auth.createUserWithEmailAndPassword(email, password);
     const uid = userCred.user.uid;
-
     const orgRef = await db.collection('organizations').add({
       name: orgName, email: email, ownerId: uid,
       taxRate: TAX_RATE, currency: CURRENCY, country: 'Zambia',
       themeColor: '#6366f1',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-
     await db.collection('users').doc(uid).set({
       fullName: fullName, email: email,
       organizationId: orgRef.id, role: 'admin',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-
     msg.className = 'msg success';
     msg.textContent = '✓ Account created! Loading...';
   } catch (err) { msg.textContent = err.message; }
@@ -268,19 +244,15 @@ async function loadUserData() {
   }
   const userData = userDoc.data();
   currentOrgId = userData.organizationId;
-
   const orgDoc = await db.collection('organizations').doc(currentOrgId).get();
   currentOrg = orgDoc.data();
-
   document.getElementById('business-name').textContent = currentOrg?.name || 'POS';
   document.getElementById('user-name').textContent = userData.fullName;
   document.getElementById('user-role').textContent = userData.role;
   document.getElementById('user-avatar').textContent = userData.fullName.charAt(0).toUpperCase();
 }
 
-// ==========================================
 // PRODUCTS
-// ==========================================
 async function loadProducts() {
   if (!currentOrgId) return;
   const snap = await db.collection('organizations').doc(currentOrgId)
@@ -294,7 +266,6 @@ function renderProducts() {
   const grid = document.getElementById('products-grid');
   const cartCountEl = document.getElementById('cart-count');
   if (cartCountEl) cartCountEl.textContent = `${cart.reduce((s,i)=>s+i.qty,0)} items`;
-  
   if (products.length === 0) {
     grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--gray-400);"><i class="bx bx-package" style="font-size:64px;display:block;margin-bottom:12px;"></i><p>No products yet. Go to Products tab to add some.</p></div>';
     return;
@@ -318,8 +289,7 @@ async function addProduct() {
   const price = parseFloat(document.getElementById('new-price').value);
   const qty = parseInt(document.getElementById('new-qty').value) || 0;
   if (!sku || !name || isNaN(price)) { 
-    showToast('Missing Info', 'Please fill SKU, Name, and Price', 'warning'); 
-    return; 
+    showToast('Missing Info', 'Please fill SKU, Name, and Price', 'warning'); return; 
   }
   try {
     await db.collection('organizations').doc(currentOrgId)
@@ -352,16 +322,13 @@ function renderProductsTable() {
 
 async function deleteProduct(id) {
   if (!confirm('Delete this product?')) return;
-  await db.collection('organizations').doc(currentOrgId)
-    .collection('products').doc(id).delete();
+  await db.collection('organizations').doc(currentOrgId).collection('products').doc(id).delete();
   await loadProducts();
   renderProductsTable();
   showToast('Deleted', 'Product removed', 'success');
 }
 
-// ==========================================
 // CART
-// ==========================================
 function addToCart(id) {
   const product = products.find(p => p.id === id);
   if (!product) return;
@@ -428,22 +395,16 @@ function handleSkuEnter(e) {
   else showToast('Not Found', 'Product not found: ' + sku, 'warning');
 }
 
-// ==========================================
-// COMPLETE SALE
-// ==========================================
 async function completeSale() {
   if (saleInProgress) return;
   if (cart.length === 0) { showToast('Empty Cart', 'Add items to cart first', 'warning'); return; }
-  
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
   const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
   if (paid < total) { 
-    showToast('Insufficient Payment', `Need at least ${money(total)}`, 'warning'); 
-    return; 
+    showToast('Insufficient Payment', `Need at least ${money(total)}`, 'warning'); return; 
   }
-
   saleInProgress = true;
   const payBtn = document.querySelector('.btn-success');
   const originalText = payBtn.innerHTML;
@@ -464,17 +425,13 @@ async function completeSale() {
       cashierId: currentUser.uid,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
-    await db.collection('organizations').doc(currentOrgId)
-      .collection('orders').add(orderData);
-
+    await db.collection('organizations').doc(currentOrgId).collection('orders').add(orderData);
     const batch = db.batch();
     for (const item of cart) {
-      const ref = db.collection('organizations').doc(currentOrgId)
-        .collection('products').doc(item.id);
+      const ref = db.collection('organizations').doc(currentOrgId).collection('products').doc(item.id);
       batch.update(ref, { qtyOnHand: item.qtyOnHand - item.qty });
     }
     await batch.commit();
-
     showToast('Sale Complete! ✓', `Total: ${money(total)} | Change: ${money(paid - total)}`, 'success');
     clearCart();
     await loadProducts();
@@ -489,9 +446,7 @@ async function completeSale() {
   }
 }
 
-// ==========================================
 // ORDERS
-// ==========================================
 async function loadOrders() {
   const snap = await db.collection('organizations').doc(currentOrgId)
     .collection('orders').orderBy('createdAt', 'desc').limit(50).get();
@@ -514,34 +469,26 @@ async function loadOrders() {
   tbody.innerHTML = rows.join('') || '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:40px;">No orders yet</td></tr>';
 }
 
-// ==========================================
 // DASHBOARD
-// ==========================================
 async function loadDashboard() {
   if (!currentOrgId) return;
   document.getElementById('stat-total-products').textContent = products.length;
   const lowStock = products.filter(p => p.qtyOnHand < 10).length;
   document.getElementById('stat-low-stock').textContent = lowStock;
-  
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayTimestamp = firebase.firestore.Timestamp.fromDate(today);
-  
   const snap = await db.collection('organizations').doc(currentOrgId)
     .collection('orders').where('createdAt', '>=', todayTimestamp).get();
-  
   let todaySales = 0, todayOrders = 0;
   snap.forEach(doc => {
     todaySales += doc.data().total || 0;
     todayOrders++;
   });
-  
   document.getElementById('stat-today-sales').textContent = moneyValue(todaySales);
   document.getElementById('stat-today-orders').textContent = todayOrders;
-  
   const recentSnap = await db.collection('organizations').doc(currentOrgId)
     .collection('orders').orderBy('createdAt', 'desc').limit(5).get();
-  
   const activityDiv = document.getElementById('recent-activity');
   const items = [];
   recentSnap.forEach(doc => {
@@ -561,53 +508,45 @@ async function loadDashboard() {
   activityDiv.innerHTML = items.join('') || '<p style="color:var(--gray-500);text-align:center;padding:20px;">No activity yet</p>';
 }
 
-// ==========================================
-// DARK MODE
-// ==========================================
+// DARK MODE (both buttons)
 function toggleDarkMode() {
   const isDark = document.body.classList.toggle('dark-mode');
   localStorage.setItem('darkMode', isDark ? 'on' : 'off');
-  const icon = document.querySelector('#theme-btn i');
-  if (isDark) {
-    icon.classList.remove('bx-moon');
-    icon.classList.add('bx-sun');
-    showToast('Dark Mode', 'Enabled', 'info');
-  } else {
-    icon.classList.remove('bx-sun');
-    icon.classList.add('bx-moon');
-    showToast('Light Mode', 'Enabled', 'info');
-  }
+  const icons = document.querySelectorAll('#theme-btn i, #theme-btn-mobile i');
+  icons.forEach(icon => {
+    if (isDark) {
+      icon.classList.remove('bx-moon');
+      icon.classList.add('bx-sun');
+    } else {
+      icon.classList.remove('bx-sun');
+      icon.classList.add('bx-moon');
+    }
+  });
+  showToast(isDark ? 'Dark Mode' : 'Light Mode', 'Enabled', 'info');
 }
 
 function loadDarkModePreference() {
   if (localStorage.getItem('darkMode') === 'on') {
     document.body.classList.add('dark-mode');
-    const icon = document.querySelector('#theme-btn i');
-    if (icon) {
+    const icons = document.querySelectorAll('#theme-btn i, #theme-btn-mobile i');
+    icons.forEach(icon => {
       icon.classList.remove('bx-moon');
       icon.classList.add('bx-sun');
-    }
+    });
   }
 }
 
-// ==========================================
 // THEME COLOR
-// ==========================================
 function setThemeColor(color) {
   document.documentElement.style.setProperty('--primary', color);
   const darker = shadeColor(color, -15);
   document.documentElement.style.setProperty('--primary-dark', darker);
   const lighter = shadeColor(color, 40);
   document.documentElement.style.setProperty('--primary-light', lighter);
-  
   localStorage.setItem('themeColor', color);
-  
   if (currentOrgId) {
-    db.collection('organizations').doc(currentOrgId)
-      .update({ themeColor: color })
-      .catch(() => {});
+    db.collection('organizations').doc(currentOrgId).update({ themeColor: color }).catch(() => {});
   }
-  
   document.querySelectorAll('.color-swatch').forEach(sw => {
     sw.classList.toggle('active', sw.dataset.color === color);
   });
@@ -629,19 +568,15 @@ function shadeColor(color, percent) {
   return '#' + RR + GG + BB;
 }
 
-// ==========================================
 // SETTINGS
-// ==========================================
 function loadSettings() {
   if (!currentOrg) return;
-  
   document.getElementById('setting-biz-name').value = currentOrg.name || '';
   document.getElementById('setting-phone').value = currentOrg.phone || '';
   document.getElementById('setting-address').value = currentOrg.address || '';
   document.getElementById('setting-email').value = currentOrg.email || '';
   document.getElementById('setting-tax').value = ((currentOrg.taxRate || TAX_RATE) * 100).toFixed(2);
   document.getElementById('setting-currency').value = currentOrg.currency || CURRENCY;
-  
   const color = currentOrg.themeColor || '#6366f1';
   document.querySelectorAll('.color-swatch').forEach(sw => {
     sw.classList.toggle('active', sw.dataset.color === color);
@@ -653,13 +588,9 @@ async function saveBusinessInfo() {
   const phone = document.getElementById('setting-phone').value.trim();
   const address = document.getElementById('setting-address').value.trim();
   const email = document.getElementById('setting-email').value.trim();
-  
   if (!name) { showToast('Error', 'Business name is required', 'error'); return; }
-  
   try {
-    await db.collection('organizations').doc(currentOrgId).update({
-      name, phone, address, email
-    });
+    await db.collection('organizations').doc(currentOrgId).update({ name, phone, address, email });
     currentOrg.name = name;
     currentOrg.phone = phone;
     currentOrg.address = address;
@@ -674,16 +605,13 @@ async function saveBusinessInfo() {
 async function saveTaxSettings() {
   const taxPercent = parseFloat(document.getElementById('setting-tax').value);
   const currency = document.getElementById('setting-currency').value.trim() || 'K';
-  
   if (isNaN(taxPercent) || taxPercent < 0 || taxPercent > 100) {
     showToast('Error', 'Enter valid tax rate (0-100)', 'error');
     return;
   }
-  
   try {
     await db.collection('organizations').doc(currentOrgId).update({
-      taxRate: taxPercent / 100,
-      currency: currency
+      taxRate: taxPercent / 100, currency: currency
     });
     currentOrg.taxRate = taxPercent / 100;
     currentOrg.currency = currency;
@@ -697,9 +625,7 @@ async function saveTaxSettings() {
   }
 }
 
-// ==========================================
 // UI HELPERS
-// ==========================================
 function showToast(title, message, type = 'success') {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
@@ -731,9 +657,6 @@ function escapeHtml(str) {
   }[m]));
 }
 
-// ==========================================
-// AUTO LOGIN CHECK
-// ==========================================
 auth.onAuthStateChanged(async (user) => {
   if (user) {
     currentUser = user;

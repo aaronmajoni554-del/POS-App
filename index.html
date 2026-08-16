@@ -13,7 +13,7 @@
   
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
   
-  <link rel="stylesheet" href="styles.css?v=4" />
+  <link rel="stylesheet" href="styles.css?v=6" />
 </head>
 <body>
   <div id="app">
@@ -159,6 +159,9 @@
             <h3 id="business-name">Business</h3>
             <small>POS System</small>
           </div>
+          <button onclick="toggleDarkMode()" class="theme-toggle-top" title="Toggle theme" id="theme-btn">
+            <i class='bx bx-moon'></i>
+          </button>
           <button class="sidebar-close" onclick="closeSidebar()">
             <i class='bx bx-x'></i>
           </button>
@@ -190,9 +193,6 @@
               <small id="user-role">role</small>
             </div>
           </div>
-          <button onclick="toggleDarkMode()" class="btn-logout" title="Toggle theme" id="theme-btn">
-            <i class='bx bx-moon'></i>
-          </button>
           <button onclick="logout()" class="btn-logout" title="Logout">
             <i class='bx bx-log-out'></i>
           </button>
@@ -211,9 +211,14 @@
             <i class='bx bx-menu'></i>
           </button>
           <h3 id="mobile-title">Point of Sale</h3>
-          <button onclick="logout()" class="btn-icon" title="Logout">
-            <i class='bx bx-log-out'></i>
-          </button>
+          <div class="mobile-actions">
+            <button onclick="toggleDarkMode()" class="btn-icon" title="Toggle theme" id="theme-btn-mobile">
+              <i class='bx bx-moon'></i>
+            </button>
+            <button onclick="logout()" class="btn-icon" title="Logout">
+              <i class='bx bx-log-out'></i>
+            </button>
+          </div>
         </div>
 
         <!-- POS TAB -->
@@ -464,6 +469,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
