@@ -24,7 +24,25 @@ let currentUser = null;
 let currentOrgId = null;
 let currentOrg = null;
 let saleInProgress = false;
-const TAX_RATE = 0.0825;
+
+// Zambian settings
+const TAX_RATE = 0.16;  // 16% VAT
+const CURRENCY = 'K';
+
+// Format money in Kwacha
+function money(amount) {
+  return `${CURRENCY} ${Number(amount).toLocaleString('en-ZM', { 
+    minimumFractionDigits: 2, 
+    maximumFractionDigits: 2 
+  })}`;
+}
+
+function moneyValue(amount) {
+  return Number(amount).toLocaleString('en-ZM', { 
+    minimumFractionDigits: 2, 
+    maximumFractionDigits: 2 
+  });
+}
 
 // ==========================================
 // SCREEN NAVIGATION
@@ -43,11 +61,18 @@ async function showPOS() {
 
 function showTab(tab) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
   document.getElementById(tab + '-tab').classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
+  
+  const titles = { pos: 'Point of Sale', products: 'Products', orders: 'Orders', dashboard: 'Dashboard' };
+  updateMobileTitle(titles[tab]);
+  
   if (tab === 'products') renderProductsTable();
   if (tab === 'orders') loadOrders();
+  if (tab === 'dashboard') loadDashboard();
+  
+  document.querySelector('.sidebar')?.classList.remove('open');
 }
 
 // ==========================================
@@ -70,20 +95,19 @@ async function signup() {
   msg.textContent = 'Creating account...';
 
   try {
-    // 1. Create Firebase auth user
     const userCred = await auth.createUserWithEmailAndPassword(email, password);
     const uid = userCred.user.uid;
 
-    // 2. Create organization document
     const orgRef = await db.collection('organizations').add({
       name: orgName,
       email: email,
       ownerId: uid,
       taxRate: TAX_RATE,
+      currency: CURRENCY,
+      country: 'Zambia',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
-    // 3. Create user profile linked to organization
     await db.collection('users').doc(uid).set({
       fullName: fullName,
       email: email,
@@ -94,7 +118,6 @@ async function signup() {
 
     msg.className = 'msg success';
     msg.textContent = '✓ Account created! Loading...';
-    // onAuthStateChanged will automatically load POS
   } catch (err) {
     msg.textContent = err.message;
   }
@@ -112,7 +135,6 @@ async function login() {
   try {
     await auth.signInWithEmailAndPassword(email, password);
     msg.textContent = '';
-    // onAuthStateChanged will load POS
   } catch (err) {
     msg.textContent = err.message;
   }
@@ -137,7 +159,11 @@ async function logout() {
 async function loadUserData() {
   if (!currentUser) return;
   const userDoc = await db.collection('users').doc(currentUser.uid).get();
-  if (!userDoc.exists) { alert('User profile not found'); logout(); return; }
+  if (!userDoc.exists) { 
+    showToast('Error', 'User profile not found', 'error'); 
+    logout(); 
+    return; 
+  }
   const userData = userDoc.data();
   currentOrgId = userData.organizationId;
 
@@ -145,7 +171,9 @@ async function loadUserData() {
   currentOrg = orgDoc.data();
 
   document.getElementById('business-name').textContent = currentOrg?.name || 'POS';
-  document.getElementById('user-info').textContent = `👤 ${userData.fullName} (${userData.role})`;
+  document.getElementById('user-name').textContent = userData.fullName;
+  document.getElementById('user-role').textContent = userData.role;
+  document.getElementById('user-avatar').textContent = userData.fullName.charAt(0).toUpperCase();
 }
 
 // ==========================================
@@ -161,21 +189,28 @@ async function loadProducts() {
 }
 
 // ==========================================
-// PRODUCTS - RENDER GRID
+// PRODUCTS - RENDER GRID (POS)
 // ==========================================
 function renderProducts() {
   const grid = document.getElementById('products-grid');
+  const cartCountEl = document.getElementById('cart-count');
+  if (cartCountEl) cartCountEl.textContent = `${cart.reduce((s,i)=>s+i.qty,0)} items`;
+  
   if (products.length === 0) {
-    grid.innerHTML = '<p style="color:#6b7280">No products yet. Go to Products tab to add some.</p>';
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--gray-400);"><i class="bx bx-package" style="font-size:64px;display:block;margin-bottom:12px;"></i><p>No products yet. Go to Products tab to add some.</p></div>';
     return;
   }
-  grid.innerHTML = products.map(p => `
-    <div class="product-card" onclick="addToCart('${p.id}')">
-      ${escapeHtml(p.name)}
-      <span class="price">$${Number(p.price).toFixed(2)}</span>
-      <span class="stock">Stock: ${p.qtyOnHand}</span>
-    </div>
-  `).join('');
+  grid.innerHTML = products.map(p => {
+    const stockClass = p.qtyOnHand === 0 ? 'out' : (p.qtyOnHand < 10 ? 'low' : '');
+    return `
+      <div class="product-card" onclick="addToCart('${p.id}')">
+        <div class="product-icon"><i class='bx bx-cube'></i></div>
+        <div class="product-name">${escapeHtml(p.name)}</div>
+        <div class="price">${money(p.price)}</div>
+        <div class="stock ${stockClass}">${p.qtyOnHand} in stock</div>
+      </div>
+    `;
+  }).join('');
 }
 
 // ==========================================
@@ -186,7 +221,10 @@ async function addProduct() {
   const name = document.getElementById('new-name').value.trim();
   const price = parseFloat(document.getElementById('new-price').value);
   const qty = parseInt(document.getElementById('new-qty').value) || 0;
-  if (!sku || !name || isNaN(price)) { alert('Fill SKU, Name, and Price'); return; }
+  if (!sku || !name || isNaN(price)) { 
+    showToast('Missing Info', 'Please fill SKU, Name, and Price', 'warning'); 
+    return; 
+  }
 
   try {
     await db.collection('organizations').doc(currentOrgId)
@@ -200,7 +238,10 @@ async function addProduct() {
     document.getElementById('new-qty').value = '';
     await loadProducts();
     renderProductsTable();
-  } catch (err) { alert(err.message); }
+    showToast('Success', `${name} added successfully`, 'success');
+  } catch (err) { 
+    showToast('Error', err.message, 'error'); 
+  }
 }
 
 // ==========================================
@@ -212,11 +253,11 @@ function renderProductsTable() {
     <tr>
       <td>${escapeHtml(p.sku)}</td>
       <td>${escapeHtml(p.name)}</td>
-      <td>$${Number(p.price).toFixed(2)}</td>
+      <td>${money(p.price)}</td>
       <td>${p.qtyOnHand}</td>
-      <td><button onclick="deleteProduct('${p.id}')" class="btn-danger" style="width:auto;padding:4px 10px;font-size:12px">Delete</button></td>
+      <td><button onclick="deleteProduct('${p.id}')" class="btn btn-danger" style="padding:6px 12px;font-size:12px"><i class='bx bx-trash'></i> Delete</button></td>
     </tr>
-  `).join('') || '<tr><td colspan="5" style="text-align:center;color:#6b7280">No products yet</td></tr>';
+  `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:40px;">No products yet</td></tr>';
 }
 
 // ==========================================
@@ -228,10 +269,11 @@ async function deleteProduct(id) {
     .collection('products').doc(id).delete();
   await loadProducts();
   renderProductsTable();
+  showToast('Deleted', 'Product removed', 'success');
 }
 
 // ==========================================
-// CART - ADD ITEM
+// CART FUNCTIONS
 // ==========================================
 function addToCart(id) {
   const product = products.find(p => p.id === id);
@@ -242,9 +284,6 @@ function addToCart(id) {
   renderCart();
 }
 
-// ==========================================
-// CART - UPDATE QUANTITY
-// ==========================================
 function updateQty(id, delta) {
   const item = cart.find(i => i.id === id);
   if (!item) return;
@@ -253,19 +292,16 @@ function updateQty(id, delta) {
   renderCart();
 }
 
-// ==========================================
-// CART - REMOVE ITEM
-// ==========================================
 function removeItem(id) {
   cart = cart.filter(i => i.id !== id);
   renderCart();
 }
 
-// ==========================================
-// CART - RENDER
-// ==========================================
 function renderCart() {
   const container = document.getElementById('cart-items');
+  const cartCountEl = document.getElementById('cart-count');
+  if (cartCountEl) cartCountEl.textContent = `${cart.reduce((s,i)=>s+i.qty,0)} items`;
+  
   container.innerHTML = cart.map(i => `
     <div class="cart-row">
       <span class="name">${escapeHtml(i.name)}</span>
@@ -274,68 +310,65 @@ function renderCart() {
         <span>${i.qty}</span>
         <button onclick="updateQty('${i.id}', 1)">+</button>
       </div>
-      <span>$${(i.price * i.qty).toFixed(2)}</span>
-      <button class="remove" onclick="removeItem('${i.id}')">✕</button>
+      <span class="item-total">${money(i.price * i.qty)}</span>
+      <button class="remove" onclick="removeItem('${i.id}')"><i class='bx bx-x'></i></button>
     </div>
-  `).join('') || '<p style="color:#6b7280;text-align:center;padding:20px">Cart is empty</p>';
+  `).join('') || '<div class="cart-empty"><i class="bx bx-cart"></i><p>Cart is empty</p><small>Click a product to add it</small></div>';
 
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
   const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
 
-  document.getElementById('subtotal').textContent = subtotal.toFixed(2);
-  document.getElementById('tax').textContent = tax.toFixed(2);
-  document.getElementById('total').textContent = total.toFixed(2);
-  document.getElementById('change').textContent = Math.max(0, paid - total).toFixed(2);
+  document.getElementById('subtotal').textContent = moneyValue(subtotal);
+  document.getElementById('tax').textContent = moneyValue(tax);
+  document.getElementById('total').textContent = moneyValue(total);
+  document.getElementById('change').textContent = moneyValue(Math.max(0, paid - total));
 }
 
-// ==========================================
-// CART - CLEAR
-// ==========================================
 function clearCart() {
   cart = [];
   document.getElementById('amount-paid').value = '';
   renderCart();
 }
 
-// ==========================================
-// SKU SCAN / MANUAL ENTRY
-// ==========================================
 function handleSkuEnter(e) {
   if (e.key !== 'Enter') return;
   const sku = e.target.value.trim();
   if (!sku) return;
   const product = products.find(p => p.sku === sku);
   if (product) { addToCart(product.id); e.target.value = ''; }
-  else alert('Product not found: ' + sku);
+  else showToast('Not Found', 'Product not found: ' + sku, 'warning');
 }
 
 // ==========================================
 // COMPLETE SALE (with double-click protection)
 // ==========================================
 async function completeSale() {
-  // Prevent double-click
   if (saleInProgress) return;
 
-  if (cart.length === 0) { alert('Cart is empty'); return; }
+  if (cart.length === 0) { 
+    showToast('Empty Cart', 'Add items to cart first', 'warning'); 
+    return; 
+  }
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
   const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
-  if (paid < total) { alert('Insufficient payment'); return; }
+  if (paid < total) { 
+    showToast('Insufficient Payment', `Need at least ${money(total)}`, 'warning'); 
+    return; 
+  }
 
-  // Lock the button
   saleInProgress = true;
   const payBtn = document.querySelector('.btn-success');
-  const originalText = payBtn.textContent;
-  payBtn.textContent = 'Processing...';
+  const originalText = payBtn.innerHTML;
+  payBtn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Processing...';
   payBtn.disabled = true;
-  payBtn.style.opacity = '0.5';
+  payBtn.style.opacity = '0.6';
   payBtn.style.cursor = 'not-allowed';
 
   try {
-    // Save order with items embedded
     const orderData = {
       items: cart.map(i => ({
         productId: i.id, sku: i.sku, name: i.name,
@@ -351,7 +384,6 @@ async function completeSale() {
     await db.collection('organizations').doc(currentOrgId)
       .collection('orders').add(orderData);
 
-    // Reduce stock for each item
     const batch = db.batch();
     for (const item of cart) {
       const ref = db.collection('organizations').doc(currentOrgId)
@@ -360,15 +392,14 @@ async function completeSale() {
     }
     await batch.commit();
 
-    alert(`✓ Sale Complete!\nTotal: $${total.toFixed(2)}\nChange: $${(paid - total).toFixed(2)}`);
+    showToast('Sale Complete! ✓', `Total: ${money(total)} | Change: ${money(paid - total)}`, 'success');
     clearCart();
     await loadProducts();
   } catch (err) {
-    alert('Error: ' + err.message);
+    showToast('Error', err.message, 'error');
   } finally {
-    // Always unlock the button, even if error
     saleInProgress = false;
-    payBtn.textContent = originalText;
+    payBtn.innerHTML = originalText;
     payBtn.disabled = false;
     payBtn.style.opacity = '1';
     payBtn.style.cursor = 'pointer';
@@ -385,23 +416,117 @@ async function loadOrders() {
   const rows = [];
   snap.forEach(doc => {
     const o = doc.data();
-    const date = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString() : '-';
+    const date = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('en-ZM') : '-';
     const itemCount = (o.items || []).reduce((s, i) => s + i.qty, 0);
     rows.push(`
       <tr>
         <td>${date}</td>
         <td>${itemCount}</td>
-        <td>$${Number(o.total).toFixed(2)}</td>
-        <td>$${Number(o.amountPaid).toFixed(2)}</td>
-        <td>$${Number(o.changeGiven).toFixed(2)}</td>
+        <td>${money(o.total)}</td>
+        <td>${money(o.amountPaid)}</td>
+        <td>${money(o.changeGiven)}</td>
       </tr>
     `);
   });
-  tbody.innerHTML = rows.join('') || '<tr><td colspan="5" style="text-align:center;color:#6b7280">No orders yet</td></tr>';
+  tbody.innerHTML = rows.join('') || '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:40px;">No orders yet</td></tr>';
 }
 
 // ==========================================
-// UTILS - Escape HTML for safety
+// UI ENHANCEMENTS
+// ==========================================
+function toggleSidebar() {
+  document.querySelector('.sidebar').classList.toggle('open');
+}
+
+function showToast(title, message, type = 'success') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  
+  const icons = {
+    success: 'bx-check-circle',
+    error: 'bx-x-circle',
+    warning: 'bx-error',
+    info: 'bx-info-circle'
+  };
+  
+  toast.innerHTML = `
+    <i class='bx ${icons[type]}'></i>
+    <div class="toast-content">
+      <div class="toast-title">${title}</div>
+      <div class="toast-message">${message}</div>
+    </div>
+  `;
+  
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'slideIn 0.3s reverse';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+function updateMobileTitle(title) {
+  const el = document.getElementById('mobile-title');
+  if (el) el.textContent = title;
+}
+
+// ==========================================
+// DASHBOARD
+// ==========================================
+async function loadDashboard() {
+  if (!currentOrgId) return;
+  
+  document.getElementById('stat-total-products').textContent = products.length;
+  
+  const lowStock = products.filter(p => p.qtyOnHand < 10).length;
+  document.getElementById('stat-low-stock').textContent = lowStock;
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayTimestamp = firebase.firestore.Timestamp.fromDate(today);
+  
+  const snap = await db.collection('organizations').doc(currentOrgId)
+    .collection('orders')
+    .where('createdAt', '>=', todayTimestamp)
+    .get();
+  
+  let todaySales = 0;
+  let todayOrders = 0;
+  snap.forEach(doc => {
+    todaySales += doc.data().total || 0;
+    todayOrders++;
+  });
+  
+  document.getElementById('stat-today-sales').textContent = moneyValue(todaySales);
+  document.getElementById('stat-today-orders').textContent = todayOrders;
+  
+  const recentSnap = await db.collection('organizations').doc(currentOrgId)
+    .collection('orders')
+    .orderBy('createdAt', 'desc')
+    .limit(5)
+    .get();
+  
+  const activityDiv = document.getElementById('recent-activity');
+  const items = [];
+  recentSnap.forEach(doc => {
+    const o = doc.data();
+    const date = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('en-ZM') : '-';
+    const itemCount = (o.items || []).reduce((s, i) => s + i.qty, 0);
+    items.push(`
+      <div style="padding:14px 0;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="font-weight:600;color:var(--gray-900);font-size:14px;">Sale of ${itemCount} items</div>
+          <small style="color:var(--gray-500);">${date}</small>
+        </div>
+        <div style="font-weight:700;color:var(--success);font-size:16px;">${money(o.total)}</div>
+      </div>
+    `);
+  });
+  activityDiv.innerHTML = items.join('') || '<p style="color:var(--gray-500);text-align:center;padding:20px;">No activity yet</p>';
+}
+
+// ==========================================
+// UTILS
 // ==========================================
 function escapeHtml(str) {
   if (!str) return '';
@@ -411,7 +536,7 @@ function escapeHtml(str) {
 }
 
 // ==========================================
-// AUTO LOGIN CHECK - Firebase watches auth state
+// AUTO LOGIN CHECK
 // ==========================================
 auth.onAuthStateChanged(async (user) => {
   if (user) {

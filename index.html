@@ -3,113 +3,336 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
-  <meta name="theme-color" content="#2563eb" />
+  <meta name="theme-color" content="#6366f1" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <title>POS System</title>
+  <title>POS System | Modern Point of Sale</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
+  
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="app">
+    
     <!-- LOGIN SCREEN -->
-    <div id="login-screen" class="screen active">
-      <div class="card">
-        <h1>🏪 POS Login</h1>
-        <input type="email" id="email" placeholder="Email" />
-        <input type="password" id="password" placeholder="Password" />
-        <button onclick="login()" class="btn-primary">Login</button>
-        <p class="link-text">No account? <a href="#" onclick="showSignup()">Register your business</a></p>
-        <p id="login-msg" class="msg"></p>
+    <div id="login-screen" class="screen active auth-screen">
+      <div class="auth-container">
+        <div class="auth-brand">
+          <div class="brand-logo">
+            <i class='bx bx-store-alt'></i>
+          </div>
+          <h1>ModernPOS</h1>
+          <p>The complete point of sale solution</p>
+          <div class="features-list">
+            <div><i class='bx bx-check-circle'></i> Multi-tenant business support</div>
+            <div><i class='bx bx-check-circle'></i> Real-time inventory tracking</div>
+            <div><i class='bx bx-check-circle'></i> Cloud-based & secure</div>
+            <div><i class='bx bx-check-circle'></i> Works on any device</div>
+          </div>
+        </div>
+        <div class="auth-form">
+          <div class="form-header">
+            <h2>Welcome back</h2>
+            <p>Sign in to your account</p>
+          </div>
+          <div class="input-group">
+            <i class='bx bx-envelope'></i>
+            <input type="email" id="email" placeholder="Email address" />
+          </div>
+          <div class="input-group">
+            <i class='bx bx-lock-alt'></i>
+            <input type="password" id="password" placeholder="Password" />
+          </div>
+          <button onclick="login()" class="btn btn-primary btn-block">
+            <i class='bx bx-log-in'></i> Sign In
+          </button>
+          <p class="link-text">New here? <a href="#" onclick="showSignup()">Create a business account</a></p>
+          <p id="login-msg" class="msg"></p>
+        </div>
       </div>
     </div>
 
     <!-- SIGNUP SCREEN -->
-    <div id="signup-screen" class="screen">
-      <div class="card">
-        <h1>📝 Register Business</h1>
-        <input type="text" id="org-name" placeholder="Business Name" />
-        <input type="text" id="full-name" placeholder="Your Full Name" />
-        <input type="email" id="signup-email" placeholder="Email" />
-        <input type="password" id="signup-password" placeholder="Password (min 6 chars)" />
-        <button onclick="signup()" class="btn-primary">Create Account</button>
-        <p class="link-text">Have an account? <a href="#" onclick="showLogin()">Login</a></p>
-        <p id="signup-msg" class="msg"></p>
+    <div id="signup-screen" class="screen auth-screen">
+      <div class="auth-container">
+        <div class="auth-brand">
+          <div class="brand-logo">
+            <i class='bx bx-rocket'></i>
+          </div>
+          <h1>Get Started</h1>
+          <p>Set up your business in seconds</p>
+          <div class="features-list">
+            <div><i class='bx bx-gift'></i> 100% Free to start</div>
+            <div><i class='bx bx-shield-quarter'></i> Secure cloud storage</div>
+            <div><i class='bx bx-time-five'></i> Ready in 30 seconds</div>
+            <div><i class='bx bx-support'></i> No credit card required</div>
+          </div>
+        </div>
+        <div class="auth-form">
+          <div class="form-header">
+            <h2>Create your account</h2>
+            <p>Start managing your business today</p>
+          </div>
+          <div class="input-group">
+            <i class='bx bx-building'></i>
+            <input type="text" id="org-name" placeholder="Business name" />
+          </div>
+          <div class="input-group">
+            <i class='bx bx-user'></i>
+            <input type="text" id="full-name" placeholder="Your full name" />
+          </div>
+          <div class="input-group">
+            <i class='bx bx-envelope'></i>
+            <input type="email" id="signup-email" placeholder="Email address" />
+          </div>
+          <div class="input-group">
+            <i class='bx bx-lock-alt'></i>
+            <input type="password" id="signup-password" placeholder="Password (min 6 characters)" />
+          </div>
+          <button onclick="signup()" class="btn btn-primary btn-block">
+            <i class='bx bx-check-circle'></i> Create Account
+          </button>
+          <p class="link-text">Already have an account? <a href="#" onclick="showLogin()">Sign in</a></p>
+          <p id="signup-msg" class="msg"></p>
+        </div>
       </div>
     </div>
 
-    <!-- POS SCREEN -->
-    <div id="pos-screen" class="screen">
-      <div class="header">
-        <div>
-          <h2 id="business-name">Point of Sale</h2>
-          <small id="user-info"></small>
-        </div>
-        <div class="header-actions">
-          <button onclick="showTab('pos')" class="tab-btn active" id="tab-pos">POS</button>
-          <button onclick="showTab('products')" class="tab-btn" id="tab-products">Products</button>
-          <button onclick="showTab('orders')" class="tab-btn" id="tab-orders">Orders</button>
-          <button onclick="logout()" class="logout">Logout</button>
-        </div>
-      </div>
-
-      <!-- POS TAB -->
-      <div id="pos-tab" class="tab-content active">
-        <div class="pos-layout">
-          <div class="products-panel">
-            <input type="text" id="sku-input" placeholder="Scan / Enter SKU and press Enter" onkeypress="handleSkuEnter(event)" />
-            <h3>Products</h3>
-            <div id="products-grid" class="grid"></div>
+    <!-- POS APP -->
+    <div id="pos-screen" class="screen app-screen">
+      
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <div class="brand-icon"><i class='bx bx-store-alt'></i></div>
+          <div class="brand-text">
+            <h3 id="business-name">Business</h3>
+            <small>POS System</small>
           </div>
+        </div>
+        
+        <nav class="sidebar-nav">
+          <button onclick="showTab('pos')" class="nav-item active" id="tab-pos">
+            <i class='bx bx-cart-alt'></i> <span>Point of Sale</span>
+          </button>
+          <button onclick="showTab('products')" class="nav-item" id="tab-products">
+            <i class='bx bx-package'></i> <span>Products</span>
+          </button>
+          <button onclick="showTab('orders')" class="nav-item" id="tab-orders">
+            <i class='bx bx-receipt'></i> <span>Orders</span>
+          </button>
+          <button onclick="showTab('dashboard')" class="nav-item" id="tab-dashboard">
+            <i class='bx bx-line-chart'></i> <span>Dashboard</span>
+          </button>
+        </nav>
 
-          <div class="cart-panel">
-            <h3>🛒 Cart</h3>
-            <div id="cart-items"></div>
-            <div class="totals">
-              <div class="total-row"><span>Subtotal:</span><span>$<span id="subtotal">0.00</span></span></div>
-              <div class="total-row"><span>Tax (8.25%):</span><span>$<span id="tax">0.00</span></span></div>
-              <div class="total-row big"><span>TOTAL:</span><span>$<span id="total">0.00</span></span></div>
-              <input type="number" id="amount-paid" placeholder="Amount Paid" step="0.01" oninput="renderCart()" />
-              <div class="total-row"><span>Change:</span><span>$<span id="change">0.00</span></span></div>
-              <div class="actions">
-                <button onclick="clearCart()" class="btn-danger">Clear</button>
-                <button onclick="completeSale()" class="btn-success">PAY</button>
+        <div class="sidebar-footer">
+          <div class="user-info">
+            <div class="user-avatar" id="user-avatar">A</div>
+            <div class="user-details">
+              <div id="user-name">User</div>
+              <small id="user-role">role</small>
+            </div>
+          </div>
+          <button onclick="logout()" class="btn btn-logout">
+            <i class='bx bx-log-out'></i>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        
+        <div class="mobile-topbar">
+          <button class="menu-toggle" onclick="toggleSidebar()">
+            <i class='bx bx-menu'></i>
+          </button>
+          <h3 id="mobile-title">Point of Sale</h3>
+          <button onclick="logout()" class="btn-icon">
+            <i class='bx bx-log-out'></i>
+          </button>
+        </div>
+
+        <!-- POS TAB -->
+        <div id="pos-tab" class="tab-content active">
+          <div class="pos-layout">
+            <div class="products-panel">
+              <div class="panel-header">
+                <div>
+                  <h2><i class='bx bx-grid-alt'></i> Products</h2>
+                  <p class="subtitle">Tap a product to add to cart</p>
+                </div>
+                <div class="search-box">
+                  <i class='bx bx-search'></i>
+                  <input type="text" id="sku-input" placeholder="Scan barcode or type SKU..." onkeypress="handleSkuEnter(event)" />
+                </div>
+              </div>
+              <div id="products-grid" class="products-grid"></div>
+            </div>
+
+            <div class="cart-panel">
+              <div class="cart-header">
+                <h2><i class='bx bx-cart'></i> Current Sale</h2>
+                <span class="badge" id="cart-count">0 items</span>
+              </div>
+              <div id="cart-items" class="cart-items"></div>
+              <div class="cart-summary">
+                <div class="summary-row"><span>Subtotal</span><span>K <span id="subtotal">0.00</span></span></div>
+                <div class="summary-row"><span>VAT (16%)</span><span>K <span id="tax">0.00</span></span></div>
+                <div class="summary-row total"><span>TOTAL</span><span>K <span id="total">0.00</span></span></div>
+                <div class="payment-input">
+                  <label><i class='bx bx-money'></i> Amount Received (K)</label>
+                  <input type="number" id="amount-paid" placeholder="0.00" step="0.01" oninput="renderCart()" />
+                </div>
+                <div class="summary-row change"><span>Change Due</span><span>K <span id="change">0.00</span></span></div>
+                <div class="cart-actions">
+                  <button onclick="clearCart()" class="btn btn-secondary">
+                    <i class='bx bx-trash'></i> Clear
+                  </button>
+                  <button onclick="completeSale()" class="btn btn-success btn-large">
+                    <i class='bx bx-check-double'></i> Complete Sale
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- PRODUCTS TAB -->
-      <div id="products-tab" class="tab-content">
-        <h3>📦 Manage Products</h3>
-        <div class="form-inline">
-          <input type="text" id="new-sku" placeholder="SKU" />
-          <input type="text" id="new-name" placeholder="Product Name" />
-          <input type="number" id="new-price" placeholder="Price" step="0.01" />
-          <input type="number" id="new-qty" placeholder="Qty" />
-          <button onclick="addProduct()" class="btn-primary">Add Product</button>
+        <!-- PRODUCTS TAB -->
+        <div id="products-tab" class="tab-content">
+          <div class="page-header">
+            <div>
+              <h2><i class='bx bx-package'></i> Product Management</h2>
+              <p class="subtitle">Add, edit, and manage your inventory</p>
+            </div>
+          </div>
+          
+          <div class="card">
+            <h3><i class='bx bx-plus-circle'></i> Add New Product</h3>
+            <div class="form-grid">
+              <div class="form-field">
+                <label>SKU / Barcode</label>
+                <input type="text" id="new-sku" placeholder="e.g., 12345" />
+              </div>
+              <div class="form-field">
+                <label>Product Name</label>
+                <input type="text" id="new-name" placeholder="e.g., Coca-Cola 500ml" />
+              </div>
+              <div class="form-field">
+                <label>Price (K)</label>
+                <input type="number" id="new-price" placeholder="0.00" step="0.01" />
+              </div>
+              <div class="form-field">
+                <label>Quantity in Stock</label>
+                <input type="number" id="new-qty" placeholder="0" />
+              </div>
+              <div class="form-field">
+                <label>&nbsp;</label>
+                <button onclick="addProduct()" class="btn btn-primary">
+                  <i class='bx bx-plus'></i> Add Product
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3><i class='bx bx-list-ul'></i> Product List</h3>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Product Name</th>
+                    <th>Price (K)</th>
+                    <th>Stock</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="products-tbody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <table id="products-table">
-          <thead>
-            <tr><th>SKU</th><th>Name</th><th>Price</th><th>Stock</th><th>Action</th></tr>
-          </thead>
-          <tbody id="products-tbody"></tbody>
-        </table>
-      </div>
 
-      <!-- ORDERS TAB -->
-      <div id="orders-tab" class="tab-content">
-        <h3>📊 Recent Orders</h3>
-        <table id="orders-table">
-          <thead>
-            <tr><th>Date</th><th>Items</th><th>Total</th><th>Paid</th><th>Change</th></tr>
-          </thead>
-          <tbody id="orders-tbody"></tbody>
-        </table>
-      </div>
+        <!-- ORDERS TAB -->
+        <div id="orders-tab" class="tab-content">
+          <div class="page-header">
+            <div>
+              <h2><i class='bx bx-receipt'></i> Order History</h2>
+              <p class="subtitle">View all your past transactions</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date & Time</th>
+                    <th>Items</th>
+                    <th>Total (K)</th>
+                    <th>Paid (K)</th>
+                    <th>Change (K)</th>
+                  </tr>
+                </thead>
+                <tbody id="orders-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- DASHBOARD TAB -->
+        <div id="dashboard-tab" class="tab-content">
+          <div class="page-header">
+            <div>
+              <h2><i class='bx bx-line-chart'></i> Dashboard</h2>
+              <p class="subtitle">Business overview at a glance</p>
+            </div>
+          </div>
+          <div class="stats-grid">
+            <div class="stat-card gradient-blue">
+              <div class="stat-icon"><i class='bx bx-dollar-circle'></i></div>
+              <div class="stat-details">
+                <small>Today's Sales</small>
+                <h2>K <span id="stat-today-sales">0.00</span></h2>
+              </div>
+            </div>
+            <div class="stat-card gradient-purple">
+              <div class="stat-icon"><i class='bx bx-shopping-bag'></i></div>
+              <div class="stat-details">
+                <small>Today's Orders</small>
+                <h2 id="stat-today-orders">0</h2>
+              </div>
+            </div>
+            <div class="stat-card gradient-green">
+              <div class="stat-icon"><i class='bx bx-package'></i></div>
+              <div class="stat-details">
+                <small>Total Products</small>
+                <h2 id="stat-total-products">0</h2>
+              </div>
+            </div>
+            <div class="stat-card gradient-orange">
+              <div class="stat-icon"><i class='bx bx-error-circle'></i></div>
+              <div class="stat-details">
+                <small>Low Stock Items</small>
+                <h2 id="stat-low-stock">0</h2>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <h3><i class='bx bx-time'></i> Recent Activity</h3>
+            <div id="recent-activity">Loading...</div>
+          </div>
+        </div>
+
+      </main>
     </div>
+
+    <div id="toast-container"></div>
+
   </div>
 
-  <!-- Firebase SDK (compat version - works in browser directly) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
