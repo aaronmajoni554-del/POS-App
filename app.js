@@ -34,6 +34,11 @@ let currentSuggestions = [];
 let highlightedIndex = -1;
 let currentInviteCode = null;
 let creatingInvite = false;
+let addingProduct = false;
+let signingUp = false;
+let joiningTeam = false;
+let lastScannedCode = null;
+let lastScanTime = 0;
 
 let TAX_RATE = 0.16;
 let CURRENCY = 'K';
@@ -244,9 +249,21 @@ async function sendPasswordReset() {
 }
 
 // ==========================================
-// AUTH - SIGNUP (Business Owner)
+// AUTH - SIGNUP (with double-click prevention)
 // ==========================================
 async function signup() {
+  if (signingUp) return;
+  
+  const btn = document.querySelector('#signup-screen button[onclick="signup()"]');
+  if (btn && btn.disabled) return;
+  
+  signingUp = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.style.pointerEvents = 'none';
+  }
+  
   const orgName = document.getElementById('org-name').value.trim();
   const fullName = document.getElementById('full-name').value.trim();
   const email = document.getElementById('signup-email').value.trim();
@@ -254,15 +271,15 @@ async function signup() {
   const msg = document.getElementById('signup-msg');
   msg.className = 'msg';
 
-  if (!orgName || !fullName || !email || !password) {
-    msg.textContent = 'Please fill all fields'; return;
-  }
-  if (password.length < 6) {
-    msg.textContent = 'Password must be at least 6 characters'; return;
-  }
-  msg.textContent = 'Creating account...';
-
   try {
+    if (!orgName || !fullName || !email || !password) {
+      msg.textContent = 'Please fill all fields'; return;
+    }
+    if (password.length < 6) {
+      msg.textContent = 'Password must be at least 6 characters'; return;
+    }
+    msg.textContent = 'Creating account...';
+
     const userCred = await auth.createUserWithEmailAndPassword(email, password);
     const uid = userCred.user.uid;
     const orgRef = await db.collection('organizations').add({
@@ -278,28 +295,51 @@ async function signup() {
     });
     msg.className = 'msg success';
     msg.textContent = '✓ Account created! Loading...';
-  } catch (err) { msg.textContent = err.message; }
+  } catch (err) { 
+    msg.textContent = err.message; 
+  } finally {
+    setTimeout(() => {
+      signingUp = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.pointerEvents = 'auto';
+      }
+    }, 3000);
+  }
 }
 
 // ==========================================
-// AUTH - JOIN TEAM
+// AUTH - JOIN TEAM (with double-click prevention)
 // ==========================================
 async function joinWithCode() {
+  if (joiningTeam) return;
+  
+  const btn = document.querySelector('#join-screen button[onclick="joinWithCode()"]');
+  if (btn && btn.disabled) return;
+  
+  joiningTeam = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.style.pointerEvents = 'none';
+  }
+  
   const code = document.getElementById('invite-code').value.trim().toUpperCase();
   const password = document.getElementById('join-password').value;
   const msg = document.getElementById('join-msg');
   msg.className = 'msg';
 
-  if (!code || !password) {
-    msg.textContent = 'Please enter code and password'; return;
-  }
-  if (password.length < 6) {
-    msg.textContent = 'Password must be at least 6 characters'; return;
-  }
-
-  msg.textContent = 'Verifying invite code...';
-
   try {
+    if (!code || !password) {
+      msg.textContent = 'Please enter code and password'; return;
+    }
+    if (password.length < 6) {
+      msg.textContent = 'Password must be at least 6 characters'; return;
+    }
+
+    msg.textContent = 'Verifying invite code...';
+
     const inviteSnap = await db.collection('invitations')
       .where('code', '==', code)
       .where('status', '==', 'pending')
@@ -341,6 +381,15 @@ async function joinWithCode() {
     } else {
       msg.textContent = err.message;
     }
+  } finally {
+    setTimeout(() => {
+      joiningTeam = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.pointerEvents = 'auto';
+      }
+    }, 3000);
   }
 }
 
@@ -394,10 +443,7 @@ function generateInviteCode() {
 }
 
 async function createInvitation() {
-  if (creatingInvite) {
-    console.log('Already creating invite, blocking duplicate call');
-    return;
-  }
+  if (creatingInvite) return;
   
   const btn = document.getElementById('generate-invite-btn');
   if (btn && btn.disabled) return;
@@ -786,27 +832,74 @@ function renderProducts() {
 }
 
 async function addProduct() {
-  const sku = document.getElementById('new-sku').value.trim();
-  const name = document.getElementById('new-name').value.trim();
-  const price = parseFloat(document.getElementById('new-price').value);
-  const qty = parseInt(document.getElementById('new-qty').value) || 0;
-  if (!sku || !name || isNaN(price)) { 
-    showToast('Missing Info', 'Please fill SKU, Name, and Price', 'warning'); return; 
+  if (addingProduct) return;
+  
+  const btn = document.querySelector('button[onclick="addProduct()"]');
+  if (btn && btn.disabled) return;
+  
+  addingProduct = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.style.pointerEvents = 'none';
+    btn.style.cursor = 'not-allowed';
   }
+  
   try {
+    const sku = document.getElementById('new-sku').value.trim();
+    const name = document.getElementById('new-name').value.trim();
+    const price = parseFloat(document.getElementById('new-price').value);
+    const qty = parseInt(document.getElementById('new-qty').value) || 0;
+    
+    if (!sku || !name || isNaN(price)) { 
+      showToast('Missing Info', 'Please fill SKU, Name, and Price', 'warning'); 
+      return; 
+    }
+    
+    // Check for duplicate SKU
+    const existing = await db.collection('organizations').doc(currentOrgId)
+      .collection('products')
+      .where('sku', '==', sku)
+      .limit(1)
+      .get();
+    
+    if (!existing.empty) {
+      showToast('Duplicate SKU', `A product with SKU "${sku}" already exists`, 'warning');
+      return;
+    }
+    
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Adding...';
+    
     await db.collection('organizations').doc(currentOrgId)
       .collection('products').add({
         sku, name, price, qtyOnHand: qty, active: true,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
+    
     document.getElementById('new-sku').value = '';
     document.getElementById('new-name').value = '';
     document.getElementById('new-price').value = '';
     document.getElementById('new-qty').value = '';
+    
     await loadProducts();
     renderProductsTable();
     showToast('Success', `${name} added successfully`, 'success');
-  } catch (err) { showToast('Error', err.message, 'error'); }
+    
+    if (btn) btn.innerHTML = originalText;
+  } catch (err) {
+    showToast('Error', err.message, 'error');
+  } finally {
+    setTimeout(() => {
+      addingProduct = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.pointerEvents = 'auto';
+        btn.style.cursor = 'pointer';
+      }
+    }, 2000);
+  }
 }
 
 function renderProductsTable() {
@@ -1342,6 +1435,10 @@ async function openScanner() {
   if (flashBtn) flashBtn.style.display = 'none';
   status.textContent = 'Requesting camera access...';
   
+  // Reset scan tracker
+  lastScannedCode = null;
+  lastScanTime = 0;
+  
   try {
     codeReader = new ZXing.BrowserMultiFormatReader();
     const videoInputDevices = await codeReader.listVideoInputDevices();
@@ -1416,14 +1513,28 @@ async function toggleFlashlight() {
 }
 
 function handleScannedBarcode(code) {
+  const now = Date.now();
+  
+  // Prevent duplicate scans - ignore if same code within 2 seconds
+  if (lastScannedCode === code && (now - lastScanTime) < 2000) {
+    console.log('Duplicate scan ignored:', code);
+    return;
+  }
+  
+  lastScannedCode = code;
+  lastScanTime = now;
+  
   if (navigator.vibrate) navigator.vibrate(100);
+  
   const product = products.find(p => p.sku === code || p.barcode === code);
+  
   if (product) {
     if (product.qtyOnHand === 0) {
       document.getElementById('scanner-status').textContent = `⚠️ Out of stock: ${product.name}`;
       showToast('Out of Stock', product.name, 'warning');
       return;
     }
+    
     addToCart(product.id);
     document.getElementById('scanner-status').textContent = `✓ Added: ${product.name}`;
     showToast('Scanned!', `Added: ${product.name}`, 'success');
@@ -1431,6 +1542,7 @@ function handleScannedBarcode(code) {
   } else {
     document.getElementById('scanner-status').textContent = `❌ Not found: ${code}`;
     showToast('Not Found', `Barcode: ${code}`, 'warning');
+    
     if (currentUserData?.role !== 'cashier') {
       setTimeout(() => {
         if (confirm(`Product with barcode "${code}" not found.\n\nAdd as new product?`)) {
@@ -1447,17 +1559,31 @@ function handleScannedBarcode(code) {
 function closeScanner() {
   const modal = document.getElementById('scanner-modal');
   modal.classList.remove('active');
+  
   if (flashlightOn && currentStream) {
     const track = currentStream.getVideoTracks()[0];
     if (track) {
       try { track.applyConstraints({ advanced: [{ torch: false }] }); } catch (err) {}
     }
   }
+  
   flashlightOn = false;
   currentStream = null;
+  
+  // Reset scan tracker
+  lastScannedCode = null;
+  lastScanTime = 0;
+  
   const flashBtn = document.getElementById('flashlight-btn');
-  if (flashBtn) { flashBtn.classList.remove('active'); flashBtn.style.display = 'none'; }
-  if (codeReader) { codeReader.reset(); codeReader = null; }
+  if (flashBtn) { 
+    flashBtn.classList.remove('active'); 
+    flashBtn.style.display = 'none'; 
+  }
+  
+  if (codeReader) { 
+    codeReader.reset(); 
+    codeReader = null; 
+  }
 }
 
 // ==========================================
