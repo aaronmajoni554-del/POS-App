@@ -1,0 +1,25 @@
+{
+  "name": "ModernPOS",
+  "short_name": "POS",
+  "description": "Modern Point of Sale System for Zambian businesses",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#6366f1",
+  "theme_color": "#6366f1",
+  "orientation": "portrait",
+  "scope": "./",
+  "icons": [
+    {
+      "src": "https://cdn.jsdelivr.net/npm/boxicons@2.1.4/svg/regular/bx-store-alt.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://cdn.jsdelivr.net/npm/boxicons@2.1.4/svg/regular/bx-store-alt.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
