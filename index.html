@@ -13,7 +13,7 @@
   
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
   
-  <link rel="stylesheet" href="styles.css?v=13" />
+  <link rel="stylesheet" href="styles.css?v=14" />
 </head>
 <body>
   <div id="app">
@@ -97,7 +97,7 @@
       </div>
     </div>
 
-    <!-- JOIN TEAM SCREEN (Staff with Invite Code) -->
+    <!-- JOIN TEAM SCREEN -->
     <div id="join-screen" class="screen auth-screen">
       <div class="auth-container">
         <div class="auth-brand">
@@ -125,7 +125,7 @@
             <input type="password" id="join-password" placeholder="Create your password (min 6 chars)" />
             <i class='bx bx-hide toggle-password' onclick="togglePassword('join-password', this)"></i>
           </div>
-          <button onclick="joinWithCode()" class="btn btn-primary btn-block">
+          <button onclick="joinWithCode(event)" class="btn btn-primary btn-block">
             <i class='bx bx-log-in'></i> Join Team
           </button>
           <p class="link-text">Already have an account? <a href="#" onclick="showLogin(); return false;">Sign in</a></p>
@@ -135,7 +135,7 @@
       </div>
     </div>
 
-    <!-- SIGNUP SCREEN (Business Owner) -->
+    <!-- SIGNUP SCREEN -->
     <div id="signup-screen" class="screen auth-screen">
       <div class="auth-container">
         <div class="auth-brand">
@@ -172,7 +172,7 @@
             <i class='bx bx-hide toggle-password' onclick="togglePassword('signup-password', this)"></i>
           </div>
           <div id="password-strength" class="password-strength"></div>
-          <button onclick="signup()" class="btn btn-primary btn-block">
+          <button onclick="signup(event)" class="btn btn-primary btn-block">
             <i class='bx bx-check-circle'></i> Create Business Account
           </button>
           <p class="link-text">Already have an account? <a href="#" onclick="showLogin(); return false;">Sign in</a></p>
@@ -314,7 +314,7 @@
                   <button onclick="clearCart()" class="btn btn-secondary">
                     <i class='bx bx-trash'></i> Clear
                   </button>
-                  <button onclick="completeSale()" class="btn btn-success btn-large">
+                  <button onclick="completeSale(event)" class="btn btn-success btn-large">
                     <i class='bx bx-check-double'></i> Complete Sale
                   </button>
                 </div>
@@ -353,7 +353,7 @@
               </div>
               <div class="form-field">
                 <label>&nbsp;</label>
-                <button onclick="addProduct()" class="btn btn-primary">
+                <button onclick="addProduct(event)" class="btn btn-primary">
                   <i class='bx bx-plus'></i> Add Product
                 </button>
               </div>
@@ -456,7 +456,7 @@
           </div>
         </div>
 
-        <!-- STAFF TAB (Admin Only) -->
+        <!-- STAFF TAB -->
         <div id="staff-tab" class="tab-content">
           <div class="page-header">
             <div>
@@ -489,7 +489,7 @@
               </div>
               <div class="form-field">
                 <label>&nbsp;</label>
-                <button id="generate-invite-btn" onclick="createInvitation()" class="btn btn-primary">
+                <button id="generate-invite-btn" onclick="createInvitation(event)" class="btn btn-primary">
                   <i class='bx bx-envelope'></i> Generate Invite
                 </button>
               </div>
@@ -533,7 +533,7 @@
           </div>
         </div>
 
-        <!-- SETTINGS TAB (Admin Only) -->
+        <!-- SETTINGS TAB -->
         <div id="settings-tab" class="tab-content">
           <div class="page-header">
             <div>
@@ -687,6 +687,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=14"></script>
 </body>
 </html>

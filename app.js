@@ -33,12 +33,9 @@ let searchTimeout = null;
 let currentSuggestions = [];
 let highlightedIndex = -1;
 let currentInviteCode = null;
-let creatingInvite = false;
-let addingProduct = false;
-let signingUp = false;
-let joiningTeam = false;
 let lastScannedCode = null;
 let lastScanTime = 0;
+let scannerProcessing = false;
 
 let TAX_RATE = 0.16;
 let CURRENCY = 'K';
@@ -58,6 +55,41 @@ function moneyValue(amount) {
 }
 
 // ==========================================
+// UNIVERSAL BUTTON LOCK (NUCLEAR SOLUTION)
+// ==========================================
+function lockButton(btn, duration = 3000) {
+  if (!btn) return false;
+  if (btn.getAttribute('data-locked') === 'true') return false;
+  
+  btn.setAttribute('data-locked', 'true');
+  btn.disabled = true;
+  btn.style.opacity = '0.5';
+  btn.style.pointerEvents = 'none';
+  btn.style.cursor = 'not-allowed';
+  
+  const originalHTML = btn.innerHTML;
+  btn.setAttribute('data-original', originalHTML);
+  
+  setTimeout(() => {
+    btn.removeAttribute('data-locked');
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.pointerEvents = 'auto';
+    btn.style.cursor = 'pointer';
+    if (btn.getAttribute('data-original')) {
+      btn.innerHTML = btn.getAttribute('data-original');
+      btn.removeAttribute('data-original');
+    }
+  }, duration);
+  
+  return true;
+}
+
+function isButtonLocked(btn) {
+  return btn && btn.getAttribute('data-locked') === 'true';
+}
+
+// ==========================================
 // SCREEN NAVIGATION
 // ==========================================
 function toggleScreen(id) {
@@ -71,14 +103,8 @@ function toggleScreen(id) {
   target.classList.add('active');
 }
 
-function showLogin() { 
-  toggleScreen('login-screen'); 
-}
-
-function showSignup() { 
-  toggleScreen('signup-screen'); 
-}
-
+function showLogin() { toggleScreen('login-screen'); }
+function showSignup() { toggleScreen('signup-screen'); }
 function showJoinTeam() { 
   toggleScreen('join-screen');
   setTimeout(() => {
@@ -86,7 +112,6 @@ function showJoinTeam() {
     if (input) input.focus();
   }, 100);
 }
-
 function showForgotPassword() {
   toggleScreen('forgot-screen');
   const loginEmail = document.getElementById('email').value;
@@ -249,20 +274,16 @@ async function sendPasswordReset() {
 }
 
 // ==========================================
-// AUTH - SIGNUP (with double-click prevention)
+// AUTH - SIGNUP
 // ==========================================
-async function signup() {
-  if (signingUp) return;
-  
-  const btn = document.querySelector('#signup-screen button[onclick="signup()"]');
-  if (btn && btn.disabled) return;
-  
-  signingUp = true;
-  if (btn) {
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-    btn.style.pointerEvents = 'none';
+async function signup(event) {
+  const btn = event ? event.target.closest('button') : document.querySelector('#signup-screen button.btn-primary');
+  if (isButtonLocked(btn)) {
+    console.log('Signup button locked - preventing duplicate');
+    return;
   }
+  lockButton(btn, 5000);
+  btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Creating...';
   
   const orgName = document.getElementById('org-name').value.trim();
   const fullName = document.getElementById('full-name').value.trim();
@@ -271,15 +292,17 @@ async function signup() {
   const msg = document.getElementById('signup-msg');
   msg.className = 'msg';
 
-  try {
-    if (!orgName || !fullName || !email || !password) {
-      msg.textContent = 'Please fill all fields'; return;
-    }
-    if (password.length < 6) {
-      msg.textContent = 'Password must be at least 6 characters'; return;
-    }
-    msg.textContent = 'Creating account...';
+  if (!orgName || !fullName || !email || !password) {
+    msg.textContent = 'Please fill all fields'; 
+    return;
+  }
+  if (password.length < 6) {
+    msg.textContent = 'Password must be at least 6 characters'; 
+    return;
+  }
+  msg.textContent = 'Creating account...';
 
+  try {
     const userCred = await auth.createUserWithEmailAndPassword(email, password);
     const uid = userCred.user.uid;
     const orgRef = await db.collection('organizations').add({
@@ -297,49 +320,38 @@ async function signup() {
     msg.textContent = '✓ Account created! Loading...';
   } catch (err) { 
     msg.textContent = err.message; 
-  } finally {
-    setTimeout(() => {
-      signingUp = false;
-      if (btn) {
-        btn.disabled = false;
-        btn.style.opacity = '1';
-        btn.style.pointerEvents = 'auto';
-      }
-    }, 3000);
   }
 }
 
 // ==========================================
-// AUTH - JOIN TEAM (with double-click prevention)
+// AUTH - JOIN TEAM
 // ==========================================
-async function joinWithCode() {
-  if (joiningTeam) return;
-  
-  const btn = document.querySelector('#join-screen button[onclick="joinWithCode()"]');
-  if (btn && btn.disabled) return;
-  
-  joiningTeam = true;
-  if (btn) {
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-    btn.style.pointerEvents = 'none';
+async function joinWithCode(event) {
+  const btn = event ? event.target.closest('button') : document.querySelector('#join-screen button.btn-primary');
+  if (isButtonLocked(btn)) {
+    console.log('Join button locked - preventing duplicate');
+    return;
   }
+  lockButton(btn, 5000);
+  btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Joining...';
   
   const code = document.getElementById('invite-code').value.trim().toUpperCase();
   const password = document.getElementById('join-password').value;
   const msg = document.getElementById('join-msg');
   msg.className = 'msg';
 
+  if (!code || !password) {
+    msg.textContent = 'Please enter code and password'; 
+    return;
+  }
+  if (password.length < 6) {
+    msg.textContent = 'Password must be at least 6 characters'; 
+    return;
+  }
+
+  msg.textContent = 'Verifying invite code...';
+
   try {
-    if (!code || !password) {
-      msg.textContent = 'Please enter code and password'; return;
-    }
-    if (password.length < 6) {
-      msg.textContent = 'Password must be at least 6 characters'; return;
-    }
-
-    msg.textContent = 'Verifying invite code...';
-
     const inviteSnap = await db.collection('invitations')
       .where('code', '==', code)
       .where('status', '==', 'pending')
@@ -381,15 +393,6 @@ async function joinWithCode() {
     } else {
       msg.textContent = err.message;
     }
-  } finally {
-    setTimeout(() => {
-      joiningTeam = false;
-      if (btn) {
-        btn.disabled = false;
-        btn.style.opacity = '1';
-        btn.style.pointerEvents = 'auto';
-      }
-    }, 3000);
   }
 }
 
@@ -442,20 +445,14 @@ function generateInviteCode() {
   return code;
 }
 
-async function createInvitation() {
-  if (creatingInvite) return;
-  
-  const btn = document.getElementById('generate-invite-btn');
-  if (btn && btn.disabled) return;
-  
-  creatingInvite = true;
-  
-  if (btn) {
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-    btn.style.pointerEvents = 'none';
-    btn.style.cursor = 'not-allowed';
+async function createInvitation(event) {
+  const btn = event ? event.target.closest('button') : document.getElementById('generate-invite-btn');
+  if (isButtonLocked(btn)) {
+    console.log('Invite button locked - preventing duplicate');
+    return;
   }
+  lockButton(btn, 4000);
+  btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Creating...';
   
   try {
     if (currentUserData?.role !== 'admin') {
@@ -487,9 +484,6 @@ async function createInvitation() {
       return;
     }
 
-    const originalText = btn ? btn.innerHTML : '';
-    if (btn) btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Creating...';
-
     const code = generateInviteCode();
 
     await db.collection('invitations').add({
@@ -515,21 +509,9 @@ async function createInvitation() {
 
     await loadStaffData();
     showToast('Success!', `Invite code created for ${fullName}`, 'success');
-    
-    if (btn) btn.innerHTML = originalText;
   } catch (err) {
     console.error('Invite error:', err);
     showToast('Error', err.message, 'error');
-  } finally {
-    setTimeout(() => {
-      creatingInvite = false;
-      if (btn) {
-        btn.disabled = false;
-        btn.style.opacity = '1';
-        btn.style.pointerEvents = 'auto';
-        btn.style.cursor = 'pointer';
-      }
-    }, 3000);
   }
 }
 
@@ -831,19 +813,22 @@ function renderProducts() {
   `;
 }
 
-async function addProduct() {
-  if (addingProduct) return;
+// ==========================================
+// ADD PRODUCT (NUCLEAR FIX)
+// ==========================================
+async function addProduct(event) {
+  console.log('🎯 addProduct called at:', new Date().toISOString());
   
-  const btn = document.querySelector('button[onclick="addProduct()"]');
-  if (btn && btn.disabled) return;
+  const btn = event ? event.target.closest('button') : document.querySelector('button[onclick*="addProduct"]');
   
-  addingProduct = true;
-  if (btn) {
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-    btn.style.pointerEvents = 'none';
-    btn.style.cursor = 'not-allowed';
+  if (isButtonLocked(btn)) {
+    console.log('⚠️ Button LOCKED - preventing duplicate add');
+    return;
   }
+  
+  // LOCK BUTTON IMMEDIATELY - before any async operations!
+  lockButton(btn, 3000);
+  btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Adding...';
   
   try {
     const sku = document.getElementById('new-sku').value.trim();
@@ -868,9 +853,6 @@ async function addProduct() {
       return;
     }
     
-    const originalText = btn ? btn.innerHTML : '';
-    if (btn) btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Adding...';
-    
     await db.collection('organizations').doc(currentOrgId)
       .collection('products').add({
         sku, name, price, qtyOnHand: qty, active: true,
@@ -885,20 +867,9 @@ async function addProduct() {
     await loadProducts();
     renderProductsTable();
     showToast('Success', `${name} added successfully`, 'success');
-    
-    if (btn) btn.innerHTML = originalText;
   } catch (err) {
+    console.error('Add product error:', err);
     showToast('Error', err.message, 'error');
-  } finally {
-    setTimeout(() => {
-      addingProduct = false;
-      if (btn) {
-        btn.disabled = false;
-        btn.style.opacity = '1';
-        btn.style.pointerEvents = 'auto';
-        btn.style.cursor = 'pointer';
-      }
-    }, 2000);
   }
 }
 
@@ -1140,23 +1111,26 @@ function handleSkuEnter(e) {
 // ==========================================
 // COMPLETE SALE
 // ==========================================
-async function completeSale() {
-  if (saleInProgress) return;
+async function completeSale(event) {
+  const btn = event ? event.target.closest('button') : document.querySelector('.btn-success');
+  if (isButtonLocked(btn)) {
+    console.log('Sale button locked - preventing duplicate');
+    return;
+  }
+  
   if (cart.length === 0) { showToast('Empty Cart', 'Add items to cart first', 'warning'); return; }
+  
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
   const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
   if (paid < total) { 
-    showToast('Insufficient Payment', `Need at least ${money(total)}`, 'warning'); return; 
+    showToast('Insufficient Payment', `Need at least ${money(total)}`, 'warning'); 
+    return; 
   }
-  saleInProgress = true;
-  const payBtn = document.querySelector('.btn-success');
-  const originalText = payBtn.innerHTML;
-  payBtn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Processing...';
-  payBtn.disabled = true;
-  payBtn.style.opacity = '0.6';
-  payBtn.style.cursor = 'not-allowed';
+  
+  lockButton(btn, 4000);
+  btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Processing...';
 
   try {
     const orderData = {
@@ -1184,12 +1158,6 @@ async function completeSale() {
     await loadProducts();
   } catch (err) {
     showToast('Error', err.message, 'error');
-  } finally {
-    saleInProgress = false;
-    payBtn.innerHTML = originalText;
-    payBtn.disabled = false;
-    payBtn.style.opacity = '1';
-    payBtn.style.cursor = 'pointer';
   }
 }
 
@@ -1425,7 +1393,7 @@ async function saveTaxSettings() {
 }
 
 // ==========================================
-// BARCODE SCANNER
+// BARCODE SCANNER - NUCLEAR FIX
 // ==========================================
 async function openScanner() {
   const modal = document.getElementById('scanner-modal');
@@ -1435,9 +1403,10 @@ async function openScanner() {
   if (flashBtn) flashBtn.style.display = 'none';
   status.textContent = 'Requesting camera access...';
   
-  // Reset scan tracker
+  // Reset all scan trackers
   lastScannedCode = null;
   lastScanTime = 0;
+  scannerProcessing = false;
   
   try {
     codeReader = new ZXing.BrowserMultiFormatReader();
@@ -1515,14 +1484,32 @@ async function toggleFlashlight() {
 function handleScannedBarcode(code) {
   const now = Date.now();
   
-  // Prevent duplicate scans - ignore if same code within 2 seconds
-  if (lastScannedCode === code && (now - lastScanTime) < 2000) {
-    console.log('Duplicate scan ignored:', code);
+  // NUCLEAR PROTECTION: Multiple checks
+  
+  // Check 1: Are we already processing a scan?
+  if (scannerProcessing) {
+    console.log('⚠️ Scanner busy, ignoring:', code);
     return;
   }
   
+  // Check 2: Is this the same code scanned recently?
+  if (lastScannedCode === code && (now - lastScanTime) < 3000) {
+    console.log('⚠️ Duplicate scan blocked:', code);
+    return;
+  }
+  
+  // Check 3: Any scan within 500ms is ignored (prevents rapid double-fires)
+  if ((now - lastScanTime) < 500) {
+    console.log('⚠️ Scan too fast, ignoring');
+    return;
+  }
+  
+  // LOCK immediately
+  scannerProcessing = true;
   lastScannedCode = code;
   lastScanTime = now;
+  
+  console.log('✓ Processing scan:', code);
   
   if (navigator.vibrate) navigator.vibrate(100);
   
@@ -1532,13 +1519,19 @@ function handleScannedBarcode(code) {
     if (product.qtyOnHand === 0) {
       document.getElementById('scanner-status').textContent = `⚠️ Out of stock: ${product.name}`;
       showToast('Out of Stock', product.name, 'warning');
+      // Release lock but keep the code cooldown
+      setTimeout(() => { scannerProcessing = false; }, 500);
       return;
     }
     
     addToCart(product.id);
     document.getElementById('scanner-status').textContent = `✓ Added: ${product.name}`;
     showToast('Scanned!', `Added: ${product.name}`, 'success');
-    setTimeout(closeScanner, 800);
+    
+    // Close scanner immediately after successful scan
+    setTimeout(() => {
+      closeScanner();
+    }, 800);
   } else {
     document.getElementById('scanner-status').textContent = `❌ Not found: ${code}`;
     showToast('Not Found', `Barcode: ${code}`, 'warning');
@@ -1550,8 +1543,14 @@ function handleScannedBarcode(code) {
           showTab('products');
           document.getElementById('new-sku').value = code;
           document.getElementById('new-name').focus();
+        } else {
+          // Release lock if they cancel
+          scannerProcessing = false;
         }
       }, 1000);
+    } else {
+      // Release lock after showing error
+      setTimeout(() => { scannerProcessing = false; }, 2000);
     }
   }
 }
@@ -1570,9 +1569,10 @@ function closeScanner() {
   flashlightOn = false;
   currentStream = null;
   
-  // Reset scan tracker
+  // Reset ALL scan trackers
   lastScannedCode = null;
   lastScanTime = 0;
+  scannerProcessing = false;
   
   const flashBtn = document.getElementById('flashlight-btn');
   if (flashBtn) { 
