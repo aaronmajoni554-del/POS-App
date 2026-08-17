@@ -13,7 +13,7 @@
   
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
   
-  <link rel="stylesheet" href="styles.css?v=10" />
+  <link rel="stylesheet" href="styles.css?v=11" />
 </head>
 <body>
   <div id="app">
@@ -28,7 +28,7 @@
           <div class="features-list">
             <div><i class='bx bx-check-circle'></i> Multi-tenant business support</div>
             <div><i class='bx bx-check-circle'></i> Real-time inventory tracking</div>
-            <div><i class='bx bx-check-circle'></i> Barcode scanning & receipts</div>
+            <div><i class='bx bx-check-circle'></i> Multiple staff accounts</div>
             <div><i class='bx bx-check-circle'></i> Works on any device</div>
           </div>
         </div>
@@ -56,7 +56,8 @@
           <button onclick="login()" class="btn btn-primary btn-block">
             <i class='bx bx-log-in'></i> Sign In
           </button>
-          <p class="link-text">New here? <a href="#" onclick="showSignup()">Create a business account</a></p>
+          <p class="link-text">New business? <a href="#" onclick="showSignup()">Register here</a></p>
+          <p class="link-text">Staff member? <a href="#" onclick="showJoinTeam()">Join with invite code</a></p>
           <p id="login-msg" class="msg"></p>
         </div>
       </div>
@@ -96,24 +97,24 @@
       </div>
     </div>
 
-    <!-- SIGNUP SCREEN -->
+    <!-- SIGNUP SCREEN (Business Owner) -->
     <div id="signup-screen" class="screen auth-screen">
       <div class="auth-container">
         <div class="auth-brand">
           <div class="brand-logo"><i class='bx bx-rocket'></i></div>
-          <h1>Get Started</h1>
-          <p>Set up your business in seconds</p>
+          <h1>Register Business</h1>
+          <p>Start your business in seconds</p>
           <div class="features-list">
             <div><i class='bx bx-gift'></i> 100% Free to start</div>
+            <div><i class='bx bx-group'></i> Invite unlimited staff</div>
             <div><i class='bx bx-shield-quarter'></i> Secure cloud storage</div>
-            <div><i class='bx bx-time-five'></i> Ready in 30 seconds</div>
             <div><i class='bx bx-support'></i> No credit card required</div>
           </div>
         </div>
         <div class="auth-form">
           <div class="form-header">
-            <h2>Create your account</h2>
-            <p>Start managing your business today</p>
+            <h2>Create your business</h2>
+            <p>You'll be the admin</p>
           </div>
           <div class="input-group">
             <i class='bx bx-building'></i>
@@ -134,10 +135,48 @@
           </div>
           <div id="password-strength" class="password-strength"></div>
           <button onclick="signup()" class="btn btn-primary btn-block">
-            <i class='bx bx-check-circle'></i> Create Account
+            <i class='bx bx-check-circle'></i> Create Business Account
           </button>
           <p class="link-text">Already have an account? <a href="#" onclick="showLogin()">Sign in</a></p>
           <p id="signup-msg" class="msg"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- JOIN TEAM SCREEN (Staff with Invite) -->
+    <div id="join-screen" class="screen auth-screen">
+      <div class="auth-container">
+        <div class="auth-brand">
+          <div class="brand-logo"><i class='bx bx-user-plus'></i></div>
+          <h1>Join Your Team</h1>
+          <p>Use the invitation code from your admin</p>
+          <div class="features-list">
+            <div><i class='bx bx-key'></i> Enter your invite code</div>
+            <div><i class='bx bx-lock-alt'></i> Create secure password</div>
+            <div><i class='bx bx-check-circle'></i> Start selling immediately</div>
+            <div><i class='bx bx-support'></i> Ask admin for help</div>
+          </div>
+        </div>
+        <div class="auth-form">
+          <div class="form-header">
+            <h2>Staff Sign Up</h2>
+            <p>Join your team's POS</p>
+          </div>
+          <div class="input-group">
+            <i class='bx bx-key'></i>
+            <input type="text" id="invite-code" placeholder="Invitation Code (e.g., ABC-123)" style="text-transform:uppercase;" />
+          </div>
+          <div class="input-group">
+            <i class='bx bx-lock-alt'></i>
+            <input type="password" id="join-password" placeholder="Create your password (min 6 chars)" />
+            <i class='bx bx-hide toggle-password' onclick="togglePassword('join-password', this)"></i>
+          </div>
+          <button onclick="joinWithCode()" class="btn btn-primary btn-block">
+            <i class='bx bx-log-in'></i> Join Team
+          </button>
+          <p class="link-text">Already have an account? <a href="#" onclick="showLogin()">Sign in</a></p>
+          <p class="link-text">Business owner? <a href="#" onclick="showSignup()">Register your business</a></p>
+          <p id="join-msg" class="msg"></p>
         </div>
       </div>
     </div>
@@ -164,16 +203,19 @@
           <button onclick="showTab('pos')" class="nav-item active" id="tab-pos">
             <i class='bx bx-cart-alt'></i> <span>Point of Sale</span>
           </button>
-          <button onclick="showTab('products')" class="nav-item" id="tab-products">
+          <button onclick="showTab('products')" class="nav-item manager-plus" id="tab-products">
             <i class='bx bx-package'></i> <span>Products</span>
           </button>
           <button onclick="showTab('orders')" class="nav-item" id="tab-orders">
             <i class='bx bx-receipt'></i> <span>Orders</span>
           </button>
-          <button onclick="showTab('dashboard')" class="nav-item" id="tab-dashboard">
+          <button onclick="showTab('dashboard')" class="nav-item manager-plus" id="tab-dashboard">
             <i class='bx bx-line-chart'></i> <span>Dashboard</span>
           </button>
-          <button onclick="showTab('settings')" class="nav-item" id="tab-settings">
+          <button onclick="showTab('staff')" class="nav-item admin-only" id="tab-staff">
+            <i class='bx bx-group'></i> <span>Staff</span>
+          </button>
+          <button onclick="showTab('settings')" class="nav-item admin-only" id="tab-settings">
             <i class='bx bx-cog'></i> <span>Settings</span>
           </button>
         </nav>
@@ -351,10 +393,10 @@
                 <thead>
                   <tr>
                     <th>Date & Time</th>
+                    <th>Cashier</th>
                     <th>Items</th>
                     <th>Total (K)</th>
                     <th>Paid (K)</th>
-                    <th>Change (K)</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -402,13 +444,97 @@
               </div>
             </div>
           </div>
+          
+          <!-- Staff Performance -->
+          <div class="card">
+            <h3><i class='bx bx-trophy'></i> Top Performing Staff (Today)</h3>
+            <div id="staff-performance">Loading...</div>
+          </div>
+          
           <div class="card">
             <h3><i class='bx bx-time'></i> Recent Activity</h3>
             <div id="recent-activity">Loading...</div>
           </div>
         </div>
 
-        <!-- SETTINGS TAB -->
+        <!-- STAFF TAB (Admin Only) -->
+        <div id="staff-tab" class="tab-content">
+          <div class="page-header">
+            <div>
+              <h2><i class='bx bx-group'></i> Staff Management</h2>
+              <p class="subtitle">Invite and manage your team members</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3><i class='bx bx-mail-send'></i> Invite Staff Member</h3>
+            <p style="color:var(--gray-500);font-size:14px;margin-bottom:16px;">
+              Generate an invite code and share it with your staff. They'll use it to create their account.
+            </p>
+            <div class="form-grid">
+              <div class="form-field">
+                <label>Staff Full Name</label>
+                <input type="text" id="staff-name" placeholder="Jane Smith" />
+              </div>
+              <div class="form-field">
+                <label>Staff Email</label>
+                <input type="email" id="staff-email" placeholder="jane@example.com" />
+              </div>
+              <div class="form-field">
+                <label>Role</label>
+                <select id="staff-role" class="mm-select">
+                  <option value="cashier">👨‍💼 Cashier (Sales Only)</option>
+                  <option value="manager">👔 Manager (Sales + Inventory)</option>
+                  <option value="admin">👑 Admin (Full Access)</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label>&nbsp;</label>
+                <button onclick="createInvitation()" class="btn btn-primary">
+                  <i class='bx bx-envelope'></i> Generate Invite
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3><i class='bx bx-envelope-open'></i> Pending Invitations</h3>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Code</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="invitations-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3><i class='bx bx-user-check'></i> Active Team Members</h3>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Sales</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="staff-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- SETTINGS TAB (Admin Only) -->
         <div id="settings-tab" class="tab-content">
           <div class="page-header">
             <div>
@@ -478,6 +604,31 @@
       </main>
     </div>
 
+    <!-- INVITATION CODE MODAL -->
+    <div id="invite-code-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3><i class='bx bx-envelope'></i> Invitation Created!</h3>
+          <button onclick="closeInviteModal()" class="modal-close"><i class='bx bx-x'></i></button>
+        </div>
+        <div class="scanner-body" style="text-align:center;">
+          <p style="color:var(--gray-600);margin-bottom:16px;">Share this code with <strong id="invite-name"></strong>:</p>
+          <div class="invite-code-display" id="invite-code-display">CODE</div>
+          <p style="color:var(--gray-500);font-size:13px;margin-top:16px;">
+            They'll use this code + create a password to join your team.
+          </p>
+          <div class="cart-actions" style="margin-top:20px;">
+            <button onclick="copyInviteCode()" class="btn btn-primary btn-block">
+              <i class='bx bx-copy'></i> Copy Code
+            </button>
+          </div>
+          <button onclick="shareInviteLink()" class="btn btn-secondary btn-block" style="margin-top:8px;">
+            <i class='bx bx-share-alt'></i> Share via WhatsApp
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- BARCODE SCANNER MODAL -->
     <div id="scanner-modal" class="modal">
       <div class="modal-content scanner-content">
@@ -537,6 +688,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>
