@@ -15,8 +15,17 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
+// KEEP USER LOGGED IN even when offline
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+  .then(() => {
+    console.log('✓ Auth persistence enabled - stays logged in offline');
+  })
+  .catch(err => {
+    console.log('Auth persistence error:', err);
+  });
+
 // ==========================================
-// ENABLE OFFLINE PERSISTENCE (Firebase caching)
+// ENABLE OFFLINE PERSISTENCE
 // ==========================================
 db.enablePersistence({ synchronizeTabs: true })
   .then(() => {
@@ -93,8 +102,6 @@ function updateOnlineStatus() {
 
 window.addEventListener('online', updateOnlineStatus);
 window.addEventListener('offline', updateOnlineStatus);
-
-// Check on load
 setTimeout(updateOnlineStatus, 500);
 
 // ==========================================
@@ -363,6 +370,12 @@ async function sendPasswordReset() {
   const email = document.getElementById('forgot-email').value.trim();
   const msg = document.getElementById('forgot-msg');
   msg.className = 'msg';
+  
+  if (!isOnline) {
+    msg.textContent = '⚠️ Password reset requires internet';
+    return;
+  }
+  
   if (!email) { msg.textContent = 'Please enter your email address'; return; }
   if (!email.includes('@') || !email.includes('.')) {
     msg.textContent = 'Please enter a valid email address'; return;
@@ -383,11 +396,18 @@ async function sendPasswordReset() {
 }
 
 // ==========================================
-// AUTH
+// AUTH - SIGNUP
 // ==========================================
 async function signup(event) {
   const btn = event ? event.target.closest('button') : document.querySelector('#signup-screen button.btn-primary');
   if (isButtonLocked(btn)) return;
+  
+  if (!isOnline) {
+    document.getElementById('signup-msg').textContent = '⚠️ Sign up requires internet connection';
+    showToast('Offline', 'Please connect to internet to sign up', 'warning');
+    return;
+  }
+  
   lockButton(btn, 5000);
   btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Creating...';
   
@@ -423,13 +443,24 @@ async function signup(event) {
     msg.className = 'msg success';
     msg.textContent = '✓ Account created! Loading...';
   } catch (err) { 
-    msg.textContent = err.message; 
+    if (err.code === 'auth/network-request-failed') {
+      msg.textContent = 'No internet connection. Please connect and try again.';
+    } else {
+      msg.textContent = err.message; 
+    }
   }
 }
 
 async function joinWithCode(event) {
   const btn = event ? event.target.closest('button') : document.querySelector('#join-screen button.btn-primary');
   if (isButtonLocked(btn)) return;
+  
+  if (!isOnline) {
+    document.getElementById('join-msg').textContent = '⚠️ Join team requires internet connection';
+    showToast('Offline', 'Please connect to internet to join', 'warning');
+    return;
+  }
+  
   lockButton(btn, 5000);
   btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Joining...';
   
@@ -486,6 +517,8 @@ async function joinWithCode(event) {
   } catch (err) {
     if (err.code === 'auth/email-already-in-use') {
       msg.textContent = 'This email is already registered. Please sign in.';
+    } else if (err.code === 'auth/network-request-failed') {
+      msg.textContent = 'No internet connection. Please connect and try again.';
     } else {
       msg.textContent = err.message;
     }
@@ -497,11 +530,24 @@ async function login() {
   const password = document.getElementById('password').value;
   const msg = document.getElementById('login-msg');
   msg.className = 'msg';
+  
+  if (!isOnline) {
+    msg.textContent = '⚠️ Login requires internet. Please connect and try again.';
+    showToast('Offline', 'Please connect to internet to login', 'warning');
+    return;
+  }
+  
   msg.textContent = 'Logging in...';
   try {
     await auth.signInWithEmailAndPassword(email, password);
     msg.textContent = '';
-  } catch (err) { msg.textContent = err.message; }
+  } catch (err) { 
+    if (err.code === 'auth/network-request-failed') {
+      msg.textContent = 'No internet connection. Please connect and try again.';
+    } else {
+      msg.textContent = err.message; 
+    }
+  }
 }
 
 async function logout() {
@@ -514,19 +560,26 @@ async function logout() {
 
 async function loadUserData() {
   if (!currentUser) return;
-  const userDoc = await db.collection('users').doc(currentUser.uid).get();
-  if (!userDoc.exists) { 
-    showToast('Error', 'User profile not found', 'error'); 
-    logout(); return; 
+  try {
+    const userDoc = await db.collection('users').doc(currentUser.uid).get();
+    if (!userDoc.exists) { 
+      showToast('Error', 'User profile not found', 'error'); 
+      logout(); return; 
+    }
+    currentUserData = userDoc.data();
+    currentOrgId = currentUserData.organizationId;
+    const orgDoc = await db.collection('organizations').doc(currentOrgId).get();
+    currentOrg = orgDoc.data();
+    document.getElementById('business-name').textContent = currentOrg?.name || 'POS';
+    document.getElementById('user-name').textContent = currentUserData.fullName;
+    document.getElementById('user-role').textContent = currentUserData.role;
+    document.getElementById('user-avatar').textContent = currentUserData.fullName.charAt(0).toUpperCase();
+  } catch (err) {
+    console.error('Load user data error:', err);
+    if (!isOnline) {
+      showToast('Offline', 'Loading cached data', 'info');
+    }
   }
-  currentUserData = userDoc.data();
-  currentOrgId = currentUserData.organizationId;
-  const orgDoc = await db.collection('organizations').doc(currentOrgId).get();
-  currentOrg = orgDoc.data();
-  document.getElementById('business-name').textContent = currentOrg?.name || 'POS';
-  document.getElementById('user-name').textContent = currentUserData.fullName;
-  document.getElementById('user-role').textContent = currentUserData.role;
-  document.getElementById('user-avatar').textContent = currentUserData.fullName.charAt(0).toUpperCase();
 }
 
 // ==========================================
@@ -544,6 +597,12 @@ function generateInviteCode() {
 async function createInvitation(event) {
   const btn = event ? event.target.closest('button') : document.getElementById('generate-invite-btn');
   if (isButtonLocked(btn)) return;
+  
+  if (!isOnline) {
+    showToast('Offline', 'Cannot create invites while offline', 'warning');
+    return;
+  }
+  
   lockButton(btn, 4000);
   btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Creating...';
   
@@ -675,10 +734,10 @@ async function loadInvitations() {
           <td>${roleBadge}</td>
           <td><code style="background:var(--gray-100);padding:2px 8px;border-radius:4px;font-weight:700;">${inv.code}</code></td>
           <td>
-            <button onclick="reshowInvite('${inv.code}', '${escapeHtml(inv.fullName).replace(/'/g, "\\'")}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;" title="View">
+            <button onclick="reshowInvite('${inv.code}', '${escapeHtml(inv.fullName).replace(/'/g, "\\'")}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;">
               <i class='bx bx-show'></i>
             </button>
-            <button onclick="deleteInvitation('${doc.id}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px;" title="Delete">
+            <button onclick="deleteInvitation('${doc.id}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px;">
               <i class='bx bx-trash'></i>
             </button>
           </td>
@@ -797,12 +856,16 @@ async function removeStaff(userId, userName) {
 // ==========================================
 async function loadProducts() {
   if (!currentOrgId) return;
-  const snap = await db.collection('organizations').doc(currentOrgId)
-    .collection('products').orderBy('name').get();
-  products = [];
-  snap.forEach(doc => products.push({ id: doc.id, ...doc.data() }));
-  renderProducts();
-  updateLowStockBadge();
+  try {
+    const snap = await db.collection('organizations').doc(currentOrgId)
+      .collection('products').orderBy('name').get();
+    products = [];
+    snap.forEach(doc => products.push({ id: doc.id, ...doc.data() }));
+    renderProducts();
+    updateLowStockBadge();
+  } catch (err) {
+    console.error('Load products error:', err);
+  }
 }
 
 function renderProducts() {
@@ -916,13 +979,13 @@ function renderProductsTable() {
         <td>${stockDisplay}</td>
         <td>
           <input type="number" value="${threshold}" min="1" style="width:60px;padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;"
-            onchange="updateThreshold('${p.id}', this.value)" title="Alert when stock reaches this number" />
+            onchange="updateThreshold('${p.id}', this.value)" />
         </td>
         <td>
-          <button onclick="updateStock('${p.id}', ${p.qtyOnHand}, '${escapeHtml(p.name).replace(/'/g, "\\'")}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;" title="Update stock">
+          <button onclick="updateStock('${p.id}', ${p.qtyOnHand}, '${escapeHtml(p.name).replace(/'/g, "\\'")}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;">
             <i class='bx bx-refresh'></i>
           </button>
-          <button onclick="deleteProduct('${p.id}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px" title="Delete">
+          <button onclick="deleteProduct('${p.id}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px">
             <i class='bx bx-trash'></i>
           </button>
         </td>
@@ -1184,7 +1247,7 @@ function handleSkuEnter(e) {
 }
 
 // ==========================================
-// COMPLETE SALE
+// COMPLETE SALE - OFFLINE FRIENDLY
 // ==========================================
 async function completeSale(event) {
   const btn = event ? event.target.closest('button') : document.querySelector('.btn-success');
@@ -1204,19 +1267,51 @@ async function completeSale(event) {
   lockButton(btn, 4000);
   btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Processing...';
 
+  const orderData = {
+    items: cart.map(i => ({
+      productId: i.id, sku: i.sku, name: i.name,
+      qty: i.qty, price: i.price, lineTotal: i.price * i.qty
+    })),
+    subtotal, tax, total,
+    amountPaid: paid,
+    changeGiven: paid - total,
+    cashierId: currentUser.uid,
+    cashierName: currentUserData.fullName,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  // OFFLINE MODE: Don't wait for server, save locally
+  if (!isOnline) {
+    try {
+      // Fire and forget - Firebase will queue this for sync
+      db.collection('organizations').doc(currentOrgId).collection('orders').add(orderData);
+      
+      const batch = db.batch();
+      for (const item of cart) {
+        const ref = db.collection('organizations').doc(currentOrgId).collection('products').doc(item.id);
+        batch.update(ref, { qtyOnHand: item.qtyOnHand - item.qty });
+      }
+      batch.commit();
+      
+      // Update local products immediately
+      cart.forEach(item => {
+        const p = products.find(pr => pr.id === item.id);
+        if (p) p.qtyOnHand = p.qtyOnHand - item.qty;
+      });
+      
+      showToast('Sale Complete! ✓ (Offline)', `Total: ${money(total)} | Change: ${money(paid - total)}\nWill sync when online`, 'success');
+      showReceiptModal(orderData);
+      clearCart();
+      renderProducts();
+      updateLowStockBadge();
+      return;
+    } catch (err) {
+      console.error('Offline sale error:', err);
+    }
+  }
+  
+  // ONLINE MODE: Wait for confirmation
   try {
-    const orderData = {
-      items: cart.map(i => ({
-        productId: i.id, sku: i.sku, name: i.name,
-        qty: i.qty, price: i.price, lineTotal: i.price * i.qty
-      })),
-      subtotal, tax, total,
-      amountPaid: paid,
-      changeGiven: paid - total,
-      cashierId: currentUser.uid,
-      cashierName: currentUserData.fullName,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
     await db.collection('organizations').doc(currentOrgId).collection('orders').add(orderData);
     const batch = db.batch();
     for (const item of cart) {
@@ -1225,14 +1320,27 @@ async function completeSale(event) {
     }
     await batch.commit();
     
-    const offlineNote = !isOnline ? ' (Will sync when online)' : '';
-    showToast('Sale Complete! ✓', `Total: ${money(total)} | Change: ${money(paid - total)}${offlineNote}`, 'success');
+    showToast('Sale Complete! ✓', `Total: ${money(total)} | Change: ${money(paid - total)}`, 'success');
     showReceiptModal(orderData);
     clearCart();
     await loadProducts();
     updateLowStockBadge();
   } catch (err) {
-    showToast('Error', err.message, 'error');
+    console.error('Sale error:', err);
+    // Even if error, if it looks like offline issue, complete sale locally
+    if (err.message.includes('offline') || err.message.includes('network') || err.code === 'unavailable') {
+      cart.forEach(item => {
+        const p = products.find(pr => pr.id === item.id);
+        if (p) p.qtyOnHand = p.qtyOnHand - item.qty;
+      });
+      showToast('Sale Complete! ✓ (Offline)', `Will sync when online`, 'success');
+      showReceiptModal(orderData);
+      clearCart();
+      renderProducts();
+      updateLowStockBadge();
+    } else {
+      showToast('Error', err.message, 'error');
+    }
   }
 }
 
@@ -1240,39 +1348,41 @@ async function completeSale(event) {
 // ORDERS
 // ==========================================
 async function loadOrders() {
-  const snap = await db.collection('organizations').doc(currentOrgId)
-    .collection('orders').orderBy('createdAt', 'desc').limit(50).get();
-  const tbody = document.getElementById('orders-tbody');
-  const rows = [];
-  snap.forEach(doc => {
-    const o = doc.data();
-    const date = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('en-ZM') : '-';
-    const itemCount = (o.items || []).reduce((s, i) => s + i.qty, 0);
-    const cashierName = o.cashierName || 'Unknown';
-    rows.push(`
-      <tr>
-        <td>${date}</td>
-        <td>${escapeHtml(cashierName)}</td>
-        <td>${itemCount}</td>
-        <td>${money(o.total)}</td>
-        <td>${money(o.amountPaid)}</td>
-        <td><button onclick="reprintReceipt('${doc.id}')" class="btn btn-primary" style="padding:6px 12px;font-size:12px"><i class='bx bx-receipt'></i> Receipt</button></td>
-      </tr>
-    `);
-  });
-  tbody.innerHTML = rows.join('') || '<tr><td colspan="6" style="text-align:center;color:var(--gray-400);padding:40px;">No orders yet</td></tr>';
+  try {
+    const snap = await db.collection('organizations').doc(currentOrgId)
+      .collection('orders').orderBy('createdAt', 'desc').limit(50).get();
+    const tbody = document.getElementById('orders-tbody');
+    const rows = [];
+    snap.forEach(doc => {
+      const o = doc.data();
+      const date = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('en-ZM') : 'Pending sync';
+      const itemCount = (o.items || []).reduce((s, i) => s + i.qty, 0);
+      const cashierName = o.cashierName || 'Unknown';
+      rows.push(`
+        <tr>
+          <td>${date}</td>
+          <td>${escapeHtml(cashierName)}</td>
+          <td>${itemCount}</td>
+          <td>${money(o.total)}</td>
+          <td>${money(o.amountPaid)}</td>
+          <td><button onclick="reprintReceipt('${doc.id}')" class="btn btn-primary" style="padding:6px 12px;font-size:12px"><i class='bx bx-receipt'></i> Receipt</button></td>
+        </tr>
+      `);
+    });
+    tbody.innerHTML = rows.join('') || '<tr><td colspan="6" style="text-align:center;color:var(--gray-400);padding:40px;">No orders yet</td></tr>';
+  } catch (err) {
+    console.error('Load orders error:', err);
+  }
 }
 
 // ==========================================
-// REPORTS - NEW!
+// REPORTS
 // ==========================================
 async function loadReports(period) {
-  // Update filter button styles
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   const activeBtn = document.getElementById('filter-' + period);
   if (activeBtn) activeBtn.classList.add('active');
   
-  // Calculate date range
   const now = new Date();
   let startDate, endDate;
   
@@ -1313,12 +1423,10 @@ async function loadReports(period) {
       totalOrders++;
       totalItems += (o.items || []).reduce((s, i) => s + i.qty, 0);
       
-      // Sales by day
       const dateKey = o.createdAt?.toDate ? o.createdAt.toDate().toISOString().split('T')[0] : 'unknown';
       if (!salesByDay[dateKey]) salesByDay[dateKey] = 0;
       salesByDay[dateKey] += o.total || 0;
       
-      // Product sales
       (o.items || []).forEach(item => {
         if (!productSales[item.productId]) {
           productSales[item.productId] = { name: item.name, qty: 0, revenue: 0 };
@@ -1327,7 +1435,6 @@ async function loadReports(period) {
         productSales[item.productId].revenue += item.lineTotal;
       });
       
-      // Staff sales
       if (o.cashierId) {
         if (!staffSales[o.cashierId]) {
           staffSales[o.cashierId] = { name: o.cashierName || 'Unknown', count: 0, total: 0 };
@@ -1337,16 +1444,13 @@ async function loadReports(period) {
       }
     });
     
-    // Update stats
     document.getElementById('report-revenue').textContent = moneyValue(totalRevenue);
     document.getElementById('report-orders').textContent = totalOrders;
     document.getElementById('report-items').textContent = totalItems;
     document.getElementById('report-avg').textContent = moneyValue(totalOrders > 0 ? totalRevenue / totalOrders : 0);
     
-    // Render chart
     renderSalesChart(salesByDay, period);
     
-    // Top products
     const topProducts = Object.values(productSales).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
     const topProductsDiv = document.getElementById('top-products');
     if (topProducts.length === 0) {
@@ -1364,7 +1468,6 @@ async function loadReports(period) {
       `).join('');
     }
     
-    // Staff performance
     const sortedStaff = Object.values(staffSales).sort((a, b) => b.total - a.total);
     const staffReportDiv = document.getElementById('staff-report');
     if (sortedStaff.length === 0) {
@@ -1395,7 +1498,6 @@ function renderSalesChart(salesByDay, period) {
   const canvas = document.getElementById('sales-chart');
   if (!canvas) return;
   
-  // Prepare data
   const now = new Date();
   const labels = [];
   const data = [];
@@ -1407,7 +1509,6 @@ function renderSalesChart(salesByDay, period) {
   if (period === 'today' || period === 'yesterday') {
     const targetDate = period === 'today' ? new Date() : new Date(now.getTime() - 86400000);
     const dateKey = targetDate.toISOString().split('T')[0];
-    // Show hourly breakdown - just use single point for simplicity
     labels.push(targetDate.toLocaleDateString('en-ZM', { weekday: 'short', month: 'short', day: 'numeric' }));
     data.push(salesByDay[dateKey] || 0);
   } else {
@@ -1419,7 +1520,6 @@ function renderSalesChart(salesByDay, period) {
     }
   }
   
-  // Destroy existing chart if any
   if (salesChart) {
     salesChart.destroy();
   }
@@ -1497,69 +1597,73 @@ async function loadDashboard() {
   today.setHours(0, 0, 0, 0);
   const todayTimestamp = firebase.firestore.Timestamp.fromDate(today);
   
-  const snap = await db.collection('organizations').doc(currentOrgId)
-    .collection('orders').where('createdAt', '>=', todayTimestamp).get();
-  
-  let todaySales = 0, todayOrders = 0;
-  const salesByStaff = {};
-  
-  snap.forEach(doc => {
-    const o = doc.data();
-    todaySales += o.total || 0;
-    todayOrders++;
-    const staffId = o.cashierId || 'unknown';
-    const staffName = o.cashierName || 'Unknown';
-    if (!salesByStaff[staffId]) salesByStaff[staffId] = { name: staffName, count: 0, total: 0 };
-    salesByStaff[staffId].count++;
-    salesByStaff[staffId].total += o.total || 0;
-  });
-  
-  document.getElementById('stat-today-sales').textContent = moneyValue(todaySales);
-  document.getElementById('stat-today-orders').textContent = todayOrders;
-  
-  const staffPerfDiv = document.getElementById('staff-performance');
-  const sortedStaff = Object.values(salesByStaff).sort((a, b) => b.total - a.total);
-  
-  if (sortedStaff.length === 0) {
-    staffPerfDiv.innerHTML = '<p style="color:var(--gray-500);text-align:center;padding:20px;">No sales today yet</p>';
-  } else {
-    staffPerfDiv.innerHTML = sortedStaff.map((staff, i) => {
-      const rankClass = i < 3 ? `rank-${i + 1}` : '';
-      const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1;
-      return `
-        <div class="staff-performance-item">
-          <div class="staff-rank ${rankClass}">${rankIcon}</div>
-          <div class="staff-avatar-small">${staff.name.charAt(0).toUpperCase()}</div>
-          <div class="staff-performance-details">
-            <div class="staff-performance-name">${escapeHtml(staff.name)}</div>
-            <div class="staff-performance-meta">${staff.count} sale${staff.count !== 1 ? 's' : ''} today</div>
+  try {
+    const snap = await db.collection('organizations').doc(currentOrgId)
+      .collection('orders').where('createdAt', '>=', todayTimestamp).get();
+    
+    let todaySales = 0, todayOrders = 0;
+    const salesByStaff = {};
+    
+    snap.forEach(doc => {
+      const o = doc.data();
+      todaySales += o.total || 0;
+      todayOrders++;
+      const staffId = o.cashierId || 'unknown';
+      const staffName = o.cashierName || 'Unknown';
+      if (!salesByStaff[staffId]) salesByStaff[staffId] = { name: staffName, count: 0, total: 0 };
+      salesByStaff[staffId].count++;
+      salesByStaff[staffId].total += o.total || 0;
+    });
+    
+    document.getElementById('stat-today-sales').textContent = moneyValue(todaySales);
+    document.getElementById('stat-today-orders').textContent = todayOrders;
+    
+    const staffPerfDiv = document.getElementById('staff-performance');
+    const sortedStaff = Object.values(salesByStaff).sort((a, b) => b.total - a.total);
+    
+    if (sortedStaff.length === 0) {
+      staffPerfDiv.innerHTML = '<p style="color:var(--gray-500);text-align:center;padding:20px;">No sales today yet</p>';
+    } else {
+      staffPerfDiv.innerHTML = sortedStaff.map((staff, i) => {
+        const rankClass = i < 3 ? `rank-${i + 1}` : '';
+        const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1;
+        return `
+          <div class="staff-performance-item">
+            <div class="staff-rank ${rankClass}">${rankIcon}</div>
+            <div class="staff-avatar-small">${staff.name.charAt(0).toUpperCase()}</div>
+            <div class="staff-performance-details">
+              <div class="staff-performance-name">${escapeHtml(staff.name)}</div>
+              <div class="staff-performance-meta">${staff.count} sale${staff.count !== 1 ? 's' : ''} today</div>
+            </div>
+            <div class="staff-performance-total">${money(staff.total)}</div>
           </div>
-          <div class="staff-performance-total">${money(staff.total)}</div>
+        `;
+      }).join('');
+    }
+    
+    const recentSnap = await db.collection('organizations').doc(currentOrgId)
+      .collection('orders').orderBy('createdAt', 'desc').limit(5).get();
+    const activityDiv = document.getElementById('recent-activity');
+    const items = [];
+    recentSnap.forEach(doc => {
+      const o = doc.data();
+      const date = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('en-ZM') : 'Pending sync';
+      const itemCount = (o.items || []).reduce((s, i) => s + i.qty, 0);
+      const cashierName = o.cashierName || 'Unknown';
+      items.push(`
+        <div style="padding:14px 0;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-weight:600;font-size:14px;">Sale of ${itemCount} items by ${escapeHtml(cashierName)}</div>
+            <small>${date}</small>
+          </div>
+          <div style="font-weight:700;color:var(--success);font-size:16px;">${money(o.total)}</div>
         </div>
-      `;
-    }).join('');
+      `);
+    });
+    activityDiv.innerHTML = items.join('') || '<p style="text-align:center;padding:20px;">No activity yet</p>';
+  } catch (err) {
+    console.error('Dashboard error:', err);
   }
-  
-  const recentSnap = await db.collection('organizations').doc(currentOrgId)
-    .collection('orders').orderBy('createdAt', 'desc').limit(5).get();
-  const activityDiv = document.getElementById('recent-activity');
-  const items = [];
-  recentSnap.forEach(doc => {
-    const o = doc.data();
-    const date = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('en-ZM') : '-';
-    const itemCount = (o.items || []).reduce((s, i) => s + i.qty, 0);
-    const cashierName = o.cashierName || 'Unknown';
-    items.push(`
-      <div style="padding:14px 0;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;">
-        <div>
-          <div style="font-weight:600;font-size:14px;">Sale of ${itemCount} items by ${escapeHtml(cashierName)}</div>
-          <small>${date}</small>
-        </div>
-        <div style="font-weight:700;color:var(--success);font-size:16px;">${money(o.total)}</div>
-      </div>
-    `);
-  });
-  activityDiv.innerHTML = items.join('') || '<p style="text-align:center;padding:20px;">No activity yet</p>';
 }
 
 // ==========================================
@@ -1578,7 +1682,6 @@ function toggleDarkMode() {
       icon.classList.add('bx-moon');
     }
   });
-  // Reload chart if on reports page
   if (document.getElementById('reports-tab').classList.contains('active')) {
     const activeFilter = document.querySelector('.filter-btn.active');
     if (activeFilter) {
