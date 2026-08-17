@@ -16,6 +16,21 @@ const auth = firebase.auth();
 const db = firebase.firestore();
 
 // ==========================================
+// ENABLE OFFLINE PERSISTENCE (Firebase caching)
+// ==========================================
+db.enablePersistence({ synchronizeTabs: true })
+  .then(() => {
+    console.log('✓ Offline persistence enabled - app works offline!');
+  })
+  .catch((err) => {
+    if (err.code === 'failed-precondition') {
+      console.log('⚠️ Multiple tabs open, offline works in one tab only');
+    } else if (err.code === 'unimplemented') {
+      console.log('⚠️ Browser does not support offline mode');
+    }
+  });
+
+// ==========================================
 // GLOBAL STATE
 // ==========================================
 let products = [];
@@ -36,6 +51,8 @@ let currentInviteCode = null;
 let lastScannedCode = null;
 let lastScanTime = 0;
 let scannerProcessing = false;
+let salesChart = null;
+let isOnline = navigator.onLine;
 
 let TAX_RATE = 0.16;
 let CURRENCY = 'K';
@@ -55,7 +72,33 @@ function moneyValue(amount) {
 }
 
 // ==========================================
-// UNIVERSAL BUTTON LOCK (NUCLEAR SOLUTION)
+// OFFLINE MODE DETECTION
+// ==========================================
+function updateOnlineStatus() {
+  isOnline = navigator.onLine;
+  const indicator = document.getElementById('offline-indicator');
+  
+  if (!isOnline) {
+    if (indicator) indicator.style.display = 'flex';
+    document.body.classList.add('offline');
+    showToast('Offline Mode', 'Working offline - changes will sync when online', 'warning');
+  } else {
+    if (indicator) indicator.style.display = 'none';
+    document.body.classList.remove('offline');
+    if (currentUser) {
+      showToast('Back Online!', 'Syncing your changes...', 'success');
+    }
+  }
+}
+
+window.addEventListener('online', updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+
+// Check on load
+setTimeout(updateOnlineStatus, 500);
+
+// ==========================================
+// UNIVERSAL BUTTON LOCK
 // ==========================================
 function lockButton(btn, duration = 3000) {
   if (!btn) return false;
@@ -129,6 +172,7 @@ async function showPOS() {
   if (currentOrg?.currency) CURRENCY = currentOrg.currency;
   
   applyRolePermissions();
+  updateLowStockBadge();
 }
 
 function applyRolePermissions() {
@@ -148,7 +192,7 @@ function showTab(tab) {
     showToast('Access Denied', 'Only admins can access this', 'warning');
     return;
   }
-  if ((tab === 'products' || tab === 'dashboard') && currentUserData?.role === 'cashier') {
+  if ((tab === 'products' || tab === 'dashboard' || tab === 'reports') && currentUserData?.role === 'cashier') {
     showToast('Access Denied', 'Contact your admin for access', 'warning');
     return;
   }
@@ -160,18 +204,83 @@ function showTab(tab) {
   
   const titles = { 
     pos: 'Point of Sale', products: 'Products', 
-    orders: 'Orders', dashboard: 'Dashboard', 
+    orders: 'Orders', reports: 'Reports', dashboard: 'Dashboard', 
     staff: 'Staff', settings: 'Settings'
   };
   updateMobileTitle(titles[tab]);
   
-  if (tab === 'products') renderProductsTable();
+  if (tab === 'products') { renderProductsTable(); renderLowStockAlert(); }
   if (tab === 'orders') loadOrders();
+  if (tab === 'reports') loadReports('today');
   if (tab === 'dashboard') loadDashboard();
   if (tab === 'staff') loadStaffData();
   if (tab === 'settings') loadSettings();
   
   autoCloseSidebar();
+}
+
+// ==========================================
+// LOW STOCK MANAGEMENT
+// ==========================================
+function getLowStockItems() {
+  return products.filter(p => {
+    const threshold = p.lowStockThreshold || 10;
+    return p.qtyOnHand > 0 && p.qtyOnHand <= threshold;
+  });
+}
+
+function getOutOfStockItems() {
+  return products.filter(p => p.qtyOnHand === 0);
+}
+
+function updateLowStockBadge() {
+  const badge = document.getElementById('low-stock-badge');
+  if (!badge) return;
+  
+  const lowStock = getLowStockItems().length;
+  const outOfStock = getOutOfStockItems().length;
+  const total = lowStock + outOfStock;
+  
+  if (total > 0) {
+    badge.textContent = total;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function renderLowStockAlert() {
+  const alertBox = document.getElementById('low-stock-alert');
+  const list = document.getElementById('low-stock-list');
+  const countEl = document.getElementById('low-stock-count');
+  
+  if (!alertBox || !list) return;
+  
+  const outOfStock = getOutOfStockItems();
+  const lowStock = getLowStockItems();
+  const allItems = [...outOfStock, ...lowStock];
+  
+  if (allItems.length === 0) {
+    alertBox.style.display = 'none';
+    return;
+  }
+  
+  alertBox.style.display = 'block';
+  if (countEl) countEl.textContent = allItems.length;
+  
+  list.innerHTML = allItems.map(p => {
+    const isCritical = p.qtyOnHand === 0;
+    const threshold = p.lowStockThreshold || 10;
+    return `
+      <div class="low-stock-item ${isCritical ? 'critical' : ''}">
+        <div class="stock-num">${p.qtyOnHand}</div>
+        <div class="stock-info">
+          <div class="stock-name">${escapeHtml(p.name)}</div>
+          <div class="stock-threshold">Alert at: ${threshold}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 // ==========================================
@@ -274,14 +383,11 @@ async function sendPasswordReset() {
 }
 
 // ==========================================
-// AUTH - SIGNUP
+// AUTH
 // ==========================================
 async function signup(event) {
   const btn = event ? event.target.closest('button') : document.querySelector('#signup-screen button.btn-primary');
-  if (isButtonLocked(btn)) {
-    console.log('Signup button locked - preventing duplicate');
-    return;
-  }
+  if (isButtonLocked(btn)) return;
   lockButton(btn, 5000);
   btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Creating...';
   
@@ -293,12 +399,10 @@ async function signup(event) {
   msg.className = 'msg';
 
   if (!orgName || !fullName || !email || !password) {
-    msg.textContent = 'Please fill all fields'; 
-    return;
+    msg.textContent = 'Please fill all fields'; return;
   }
   if (password.length < 6) {
-    msg.textContent = 'Password must be at least 6 characters'; 
-    return;
+    msg.textContent = 'Password must be at least 6 characters'; return;
   }
   msg.textContent = 'Creating account...';
 
@@ -323,15 +427,9 @@ async function signup(event) {
   }
 }
 
-// ==========================================
-// AUTH - JOIN TEAM
-// ==========================================
 async function joinWithCode(event) {
   const btn = event ? event.target.closest('button') : document.querySelector('#join-screen button.btn-primary');
-  if (isButtonLocked(btn)) {
-    console.log('Join button locked - preventing duplicate');
-    return;
-  }
+  if (isButtonLocked(btn)) return;
   lockButton(btn, 5000);
   btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Joining...';
   
@@ -341,12 +439,10 @@ async function joinWithCode(event) {
   msg.className = 'msg';
 
   if (!code || !password) {
-    msg.textContent = 'Please enter code and password'; 
-    return;
+    msg.textContent = 'Please enter code and password'; return;
   }
   if (password.length < 6) {
-    msg.textContent = 'Password must be at least 6 characters'; 
-    return;
+    msg.textContent = 'Password must be at least 6 characters'; return;
   }
 
   msg.textContent = 'Verifying invite code...';
@@ -447,10 +543,7 @@ function generateInviteCode() {
 
 async function createInvitation(event) {
   const btn = event ? event.target.closest('button') : document.getElementById('generate-invite-btn');
-  if (isButtonLocked(btn)) {
-    console.log('Invite button locked - preventing duplicate');
-    return;
-  }
+  if (isButtonLocked(btn)) return;
   lockButton(btn, 4000);
   btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Creating...';
   
@@ -487,14 +580,9 @@ async function createInvitation(event) {
     const code = generateInviteCode();
 
     await db.collection('invitations').add({
-      code: code,
-      email: email,
-      fullName: fullName,
-      role: role,
-      organizationId: currentOrgId,
-      orgName: currentOrg.name,
-      invitedBy: currentUser.uid,
-      status: 'pending',
+      code: code, email: email, fullName: fullName, role: role,
+      organizationId: currentOrgId, orgName: currentOrg.name,
+      invitedBy: currentUser.uid, status: 'pending',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
@@ -571,12 +659,10 @@ async function loadStaffData() {
 async function loadInvitations() {
   const tbody = document.getElementById('invitations-tbody');
   if (!tbody) return;
-  
   try {
     const snap = await db.collection('invitations')
       .where('organizationId', '==', currentOrgId)
-      .where('status', '==', 'pending')
-      .get();
+      .where('status', '==', 'pending').get();
     
     const rows = [];
     snap.forEach(doc => {
@@ -589,7 +675,7 @@ async function loadInvitations() {
           <td>${roleBadge}</td>
           <td><code style="background:var(--gray-100);padding:2px 8px;border-radius:4px;font-weight:700;">${inv.code}</code></td>
           <td>
-            <button onclick="reshowInvite('${inv.code}', '${escapeHtml(inv.fullName).replace(/'/g, "\\'")}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;" title="View code">
+            <button onclick="reshowInvite('${inv.code}', '${escapeHtml(inv.fullName).replace(/'/g, "\\'")}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;" title="View">
               <i class='bx bx-show'></i>
             </button>
             <button onclick="deleteInvitation('${doc.id}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px;" title="Delete">
@@ -599,10 +685,8 @@ async function loadInvitations() {
         </tr>
       `);
     });
-    
     tbody.innerHTML = rows.join('') || '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:40px;">No pending invitations</td></tr>';
   } catch (err) {
-    console.error(err);
     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--danger);padding:40px;">Error loading invitations</td></tr>';
   }
 }
@@ -620,23 +704,16 @@ async function deleteInvitation(id) {
     await db.collection('invitations').doc(id).delete();
     await loadInvitations();
     showToast('Deleted', 'Invitation removed', 'success');
-  } catch (err) {
-    showToast('Error', err.message, 'error');
-  }
+  } catch (err) { showToast('Error', err.message, 'error'); }
 }
 
 async function loadStaffMembers() {
   const tbody = document.getElementById('staff-tbody');
   if (!tbody) return;
-  
   try {
-    const snap = await db.collection('users')
-      .where('organizationId', '==', currentOrgId)
-      .get();
-    
+    const snap = await db.collection('users').where('organizationId', '==', currentOrgId).get();
     const users = [];
     snap.forEach(doc => users.push({ id: doc.id, ...doc.data() }));
-    
     users.sort((a, b) => {
       const order = { admin: 1, manager: 2, cashier: 3 };
       return (order[a.role] || 4) - (order[b.role] || 4);
@@ -644,39 +721,29 @@ async function loadStaffMembers() {
     
     let salesByUser = {};
     try {
-      const ordersSnap = await db.collection('organizations').doc(currentOrgId)
-        .collection('orders').get();
-      
+      const ordersSnap = await db.collection('organizations').doc(currentOrgId).collection('orders').get();
       ordersSnap.forEach(doc => {
         const order = doc.data();
         if (order.cashierId) {
-          if (!salesByUser[order.cashierId]) {
-            salesByUser[order.cashierId] = { count: 0, total: 0 };
-          }
+          if (!salesByUser[order.cashierId]) salesByUser[order.cashierId] = { count: 0, total: 0 };
           salesByUser[order.cashierId].count++;
           salesByUser[order.cashierId].total += order.total || 0;
         }
       });
-    } catch (err) {
-      console.log('Could not load sales:', err);
-    }
+    } catch (err) { console.log('Could not load sales:', err); }
     
     if (users.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:40px;">No team members yet. Invite someone above!</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:40px;">No team members yet</td></tr>';
       return;
     }
     
-    const rows = users.map(user => {
+    tbody.innerHTML = users.map(user => {
       const roleBadge = `<span class="role-badge ${user.role}">${user.role}</span>`;
       const sales = salesByUser[user.id] || { count: 0, total: 0 };
       const isSelf = user.id === currentUser.uid;
-      
       return `
         <tr>
-          <td>
-            <strong>${escapeHtml(user.fullName)}</strong>
-            ${isSelf ? ' <small style="color:var(--primary);">(You)</small>' : ''}
-          </td>
+          <td><strong>${escapeHtml(user.fullName)}</strong>${isSelf ? ' <small style="color:var(--primary);">(You)</small>' : ''}</td>
           <td>${escapeHtml(user.email)}</td>
           <td>${roleBadge}</td>
           <td>
@@ -685,25 +752,19 @@ async function loadStaffMembers() {
           </td>
           <td>
             ${!isSelf ? `
-              <button onclick="changeUserRole('${user.id}', '${user.role}', '${escapeHtml(user.fullName).replace(/'/g, "\\'")}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;" title="Change role">
+              <button onclick="changeUserRole('${user.id}', '${user.role}', '${escapeHtml(user.fullName).replace(/'/g, "\\'")}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;">
                 <i class='bx bx-edit'></i>
               </button>
-              <button onclick="removeStaff('${user.id}', '${escapeHtml(user.fullName).replace(/'/g, "\\'")}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px;" title="Remove">
+              <button onclick="removeStaff('${user.id}', '${escapeHtml(user.fullName).replace(/'/g, "\\'")}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px;">
                 <i class='bx bx-trash'></i>
               </button>
             ` : '<span style="color:var(--gray-400);font-size:12px;">Cannot modify self</span>'}
           </td>
         </tr>
       `;
-    });
-    
-    tbody.innerHTML = rows.join('');
+    }).join('');
   } catch (err) {
-    console.error('Load staff error:', err);
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px;">
-      <div style="color:var(--danger);margin-bottom:8px;">⚠️ ${err.message}</div>
-      <small style="color:var(--gray-500);">Check Firestore rules are published</small>
-    </td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--danger);padding:40px;">${err.message}</td></tr>`;
   }
 }
 
@@ -719,31 +780,16 @@ async function changeUserRole(userId, currentRole, userName) {
     await db.collection('users').doc(userId).update({ role: newRole.toLowerCase() });
     await loadStaffMembers();
     showToast('Updated!', `${userName} is now a ${newRole}`, 'success');
-  } catch (err) {
-    showToast('Error', err.message, 'error');
-  }
+  } catch (err) { showToast('Error', err.message, 'error'); }
 }
 
 async function removeStaff(userId, userName) {
-  const warning = `Remove ${userName} from your team?\n\n` +
-    `⚠️ IMPORTANT:\n` +
-    `• Their profile will be deleted\n` +
-    `• Their sales history is kept\n` +
-    `• Their Firebase login still exists\n` +
-    `• They CANNOT sign up again with same email unless you delete their Auth account too\n\n` +
-    `To fully remove them, also delete from:\n` +
-    `Firebase Console → Authentication → Users\n\n` +
-    `Continue?`;
-  
-  if (!confirm(warning)) return;
-  
+  if (!confirm(`Remove ${userName} from your team?\n\nAlso delete from Firebase Auth if needed.`)) return;
   try {
     await db.collection('users').doc(userId).delete();
     await loadStaffMembers();
-    showToast('Profile Removed', `${userName} removed. Also delete from Firebase Auth if needed.`, 'success');
-  } catch (err) {
-    showToast('Error', err.message, 'error');
-  }
+    showToast('Removed', `${userName} removed`, 'success');
+  } catch (err) { showToast('Error', err.message, 'error'); }
 }
 
 // ==========================================
@@ -756,6 +802,7 @@ async function loadProducts() {
   products = [];
   snap.forEach(doc => products.push({ id: doc.id, ...doc.data() }));
   renderProducts();
+  updateLowStockBadge();
 }
 
 function renderProducts() {
@@ -772,17 +819,6 @@ function renderProducts() {
         <div class="empty-icon"><i class='bx bx-package'></i></div>
         <h3>No Products Yet</h3>
         <p>Add products to your inventory first!</p>
-        ${currentUserData?.role !== 'cashier' ? `
-        <div class="hint-actions">
-          <div class="hint-action" onclick="showTab('products')" style="cursor:pointer;">
-            <div class="hint-icon"><i class='bx bx-plus'></i></div>
-            <div class="hint-text">
-              <strong>Add Products</strong>
-              <small>Go to Products tab</small>
-            </div>
-          </div>
-        </div>
-        ` : `<p><small>Ask your admin to add products</small></p>`}
       </div>
     `;
     return;
@@ -813,20 +849,9 @@ function renderProducts() {
   `;
 }
 
-// ==========================================
-// ADD PRODUCT (NUCLEAR FIX)
-// ==========================================
 async function addProduct(event) {
-  console.log('🎯 addProduct called at:', new Date().toISOString());
-  
   const btn = event ? event.target.closest('button') : document.querySelector('button[onclick*="addProduct"]');
-  
-  if (isButtonLocked(btn)) {
-    console.log('⚠️ Button LOCKED - preventing duplicate add');
-    return;
-  }
-  
-  // LOCK BUTTON IMMEDIATELY - before any async operations!
+  if (isButtonLocked(btn)) return;
   lockButton(btn, 3000);
   btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Adding...';
   
@@ -835,18 +860,15 @@ async function addProduct(event) {
     const name = document.getElementById('new-name').value.trim();
     const price = parseFloat(document.getElementById('new-price').value);
     const qty = parseInt(document.getElementById('new-qty').value) || 0;
+    const threshold = parseInt(document.getElementById('new-threshold').value) || 10;
     
     if (!sku || !name || isNaN(price)) { 
       showToast('Missing Info', 'Please fill SKU, Name, and Price', 'warning'); 
       return; 
     }
     
-    // Check for duplicate SKU
     const existing = await db.collection('organizations').doc(currentOrgId)
-      .collection('products')
-      .where('sku', '==', sku)
-      .limit(1)
-      .get();
+      .collection('products').where('sku', '==', sku).limit(1).get();
     
     if (!existing.empty) {
       showToast('Duplicate SKU', `A product with SKU "${sku}" already exists`, 'warning');
@@ -855,7 +877,9 @@ async function addProduct(event) {
     
     await db.collection('organizations').doc(currentOrgId)
       .collection('products').add({
-        sku, name, price, qtyOnHand: qty, active: true,
+        sku, name, price, qtyOnHand: qty, 
+        lowStockThreshold: threshold,
+        active: true,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
     
@@ -863,27 +887,83 @@ async function addProduct(event) {
     document.getElementById('new-name').value = '';
     document.getElementById('new-price').value = '';
     document.getElementById('new-qty').value = '';
+    document.getElementById('new-threshold').value = '10';
     
     await loadProducts();
     renderProductsTable();
+    renderLowStockAlert();
     showToast('Success', `${name} added successfully`, 'success');
   } catch (err) {
-    console.error('Add product error:', err);
     showToast('Error', err.message, 'error');
   }
 }
 
 function renderProductsTable() {
   const tbody = document.getElementById('products-tbody');
-  tbody.innerHTML = products.map(p => `
-    <tr>
-      <td>${escapeHtml(p.sku)}</td>
-      <td>${escapeHtml(p.name)}</td>
-      <td>${money(p.price)}</td>
-      <td>${p.qtyOnHand}</td>
-      <td><button onclick="deleteProduct('${p.id}')" class="btn btn-danger" style="padding:6px 12px;font-size:12px"><i class='bx bx-trash'></i> Delete</button></td>
-    </tr>
-  `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:40px;">No products yet</td></tr>';
+  tbody.innerHTML = products.map(p => {
+    const threshold = p.lowStockThreshold || 10;
+    const isLow = p.qtyOnHand > 0 && p.qtyOnHand <= threshold;
+    const isOut = p.qtyOnHand === 0;
+    let stockDisplay = p.qtyOnHand;
+    if (isOut) stockDisplay = `<span style="color:var(--danger);font-weight:700;">OUT (${p.qtyOnHand})</span>`;
+    else if (isLow) stockDisplay = `<span style="color:var(--warning);font-weight:700;">LOW (${p.qtyOnHand})</span>`;
+    
+    return `
+      <tr>
+        <td>${escapeHtml(p.sku)}</td>
+        <td>${escapeHtml(p.name)}</td>
+        <td>${money(p.price)}</td>
+        <td>${stockDisplay}</td>
+        <td>
+          <input type="number" value="${threshold}" min="1" style="width:60px;padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;"
+            onchange="updateThreshold('${p.id}', this.value)" title="Alert when stock reaches this number" />
+        </td>
+        <td>
+          <button onclick="updateStock('${p.id}', ${p.qtyOnHand}, '${escapeHtml(p.name).replace(/'/g, "\\'")}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;" title="Update stock">
+            <i class='bx bx-refresh'></i>
+          </button>
+          <button onclick="deleteProduct('${p.id}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px" title="Delete">
+            <i class='bx bx-trash'></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--gray-400);padding:40px;">No products yet</td></tr>';
+}
+
+async function updateThreshold(id, value) {
+  const threshold = parseInt(value) || 10;
+  try {
+    await db.collection('organizations').doc(currentOrgId).collection('products').doc(id)
+      .update({ lowStockThreshold: threshold });
+    const p = products.find(pr => pr.id === id);
+    if (p) p.lowStockThreshold = threshold;
+    updateLowStockBadge();
+    renderLowStockAlert();
+    showToast('Updated', 'Threshold updated', 'success');
+  } catch (err) {
+    showToast('Error', err.message, 'error');
+  }
+}
+
+async function updateStock(id, currentStock, name) {
+  const newStock = prompt(`Update stock for ${name}\n\nCurrent: ${currentStock}\n\nEnter new quantity:`, currentStock);
+  if (newStock === null) return;
+  const qty = parseInt(newStock);
+  if (isNaN(qty) || qty < 0) {
+    showToast('Invalid', 'Please enter a valid number', 'warning');
+    return;
+  }
+  try {
+    await db.collection('organizations').doc(currentOrgId).collection('products').doc(id)
+      .update({ qtyOnHand: qty });
+    await loadProducts();
+    renderProductsTable();
+    renderLowStockAlert();
+    showToast('Updated', 'Stock updated', 'success');
+  } catch (err) {
+    showToast('Error', err.message, 'error');
+  }
 }
 
 async function deleteProduct(id) {
@@ -891,6 +971,7 @@ async function deleteProduct(id) {
   await db.collection('organizations').doc(currentOrgId).collection('products').doc(id).delete();
   await loadProducts();
   renderProductsTable();
+  renderLowStockAlert();
   showToast('Deleted', 'Product removed', 'success');
 }
 
@@ -919,12 +1000,7 @@ function showSuggestions(query) {
   const dropdown = document.getElementById('suggestions-dropdown');
   
   if (filtered.length === 0) {
-    dropdown.innerHTML = `
-      <div class="suggestion-empty">
-        <i class='bx bx-search-alt-2'></i>
-        <p>No products found for "${escapeHtml(query)}"</p>
-      </div>
-    `;
+    dropdown.innerHTML = `<div class="suggestion-empty"><i class='bx bx-search-alt-2'></i><p>No products found for "${escapeHtml(query)}"</p></div>`;
     dropdown.classList.add('active');
     return;
   }
@@ -935,8 +1011,9 @@ function showSuggestions(query) {
       <span>↑↓ to navigate • Enter to add</span>
     </div>
     ${filtered.map((p, index) => {
-      const stockClass = p.qtyOnHand === 0 ? 'out-stock' : (p.qtyOnHand < 10 ? 'low-stock' : 'in-stock');
-      const stockText = p.qtyOnHand === 0 ? 'Out' : p.qtyOnHand < 10 ? `${p.qtyOnHand} left` : `${p.qtyOnHand}`;
+      const threshold = p.lowStockThreshold || 10;
+      const stockClass = p.qtyOnHand === 0 ? 'out-stock' : (p.qtyOnHand <= threshold ? 'low-stock' : 'in-stock');
+      const stockText = p.qtyOnHand === 0 ? 'Out' : p.qtyOnHand <= threshold ? `${p.qtyOnHand} left` : `${p.qtyOnHand}`;
       const highlightedName = highlightMatch(p.name, query);
       return `
         <div class="suggestion-item" data-index="${index}" onclick="selectSuggestion('${p.id}')">
@@ -1001,9 +1078,7 @@ function updateHighlight() {
     if (index === highlightedIndex) {
       item.classList.add('highlighted');
       item.scrollIntoView({ block: 'nearest' });
-    } else {
-      item.classList.remove('highlighted');
-    }
+    } else item.classList.remove('highlighted');
   });
 }
 
@@ -1113,10 +1188,7 @@ function handleSkuEnter(e) {
 // ==========================================
 async function completeSale(event) {
   const btn = event ? event.target.closest('button') : document.querySelector('.btn-success');
-  if (isButtonLocked(btn)) {
-    console.log('Sale button locked - preventing duplicate');
-    return;
-  }
+  if (isButtonLocked(btn)) return;
   
   if (cart.length === 0) { showToast('Empty Cart', 'Add items to cart first', 'warning'); return; }
   
@@ -1152,10 +1224,13 @@ async function completeSale(event) {
       batch.update(ref, { qtyOnHand: item.qtyOnHand - item.qty });
     }
     await batch.commit();
-    showToast('Sale Complete! ✓', `Total: ${money(total)} | Change: ${money(paid - total)}`, 'success');
+    
+    const offlineNote = !isOnline ? ' (Will sync when online)' : '';
+    showToast('Sale Complete! ✓', `Total: ${money(total)} | Change: ${money(paid - total)}${offlineNote}`, 'success');
     showReceiptModal(orderData);
     clearCart();
     await loadProducts();
+    updateLowStockBadge();
   } catch (err) {
     showToast('Error', err.message, 'error');
   }
@@ -1189,12 +1264,233 @@ async function loadOrders() {
 }
 
 // ==========================================
+// REPORTS - NEW!
+// ==========================================
+async function loadReports(period) {
+  // Update filter button styles
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  const activeBtn = document.getElementById('filter-' + period);
+  if (activeBtn) activeBtn.classList.add('active');
+  
+  // Calculate date range
+  const now = new Date();
+  let startDate, endDate;
+  
+  if (period === 'today') {
+    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    endDate = new Date();
+  } else if (period === 'yesterday') {
+    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  } else if (period === 'week') {
+    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+    endDate = new Date();
+  } else if (period === 'month') {
+    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30);
+    endDate = new Date();
+  }
+  
+  const startTs = firebase.firestore.Timestamp.fromDate(startDate);
+  const endTs = firebase.firestore.Timestamp.fromDate(endDate);
+  
+  try {
+    const snap = await db.collection('organizations').doc(currentOrgId)
+      .collection('orders')
+      .where('createdAt', '>=', startTs)
+      .where('createdAt', '<=', endTs)
+      .get();
+    
+    let totalRevenue = 0;
+    let totalOrders = 0;
+    let totalItems = 0;
+    const salesByDay = {};
+    const productSales = {};
+    const staffSales = {};
+    
+    snap.forEach(doc => {
+      const o = doc.data();
+      totalRevenue += o.total || 0;
+      totalOrders++;
+      totalItems += (o.items || []).reduce((s, i) => s + i.qty, 0);
+      
+      // Sales by day
+      const dateKey = o.createdAt?.toDate ? o.createdAt.toDate().toISOString().split('T')[0] : 'unknown';
+      if (!salesByDay[dateKey]) salesByDay[dateKey] = 0;
+      salesByDay[dateKey] += o.total || 0;
+      
+      // Product sales
+      (o.items || []).forEach(item => {
+        if (!productSales[item.productId]) {
+          productSales[item.productId] = { name: item.name, qty: 0, revenue: 0 };
+        }
+        productSales[item.productId].qty += item.qty;
+        productSales[item.productId].revenue += item.lineTotal;
+      });
+      
+      // Staff sales
+      if (o.cashierId) {
+        if (!staffSales[o.cashierId]) {
+          staffSales[o.cashierId] = { name: o.cashierName || 'Unknown', count: 0, total: 0 };
+        }
+        staffSales[o.cashierId].count++;
+        staffSales[o.cashierId].total += o.total || 0;
+      }
+    });
+    
+    // Update stats
+    document.getElementById('report-revenue').textContent = moneyValue(totalRevenue);
+    document.getElementById('report-orders').textContent = totalOrders;
+    document.getElementById('report-items').textContent = totalItems;
+    document.getElementById('report-avg').textContent = moneyValue(totalOrders > 0 ? totalRevenue / totalOrders : 0);
+    
+    // Render chart
+    renderSalesChart(salesByDay, period);
+    
+    // Top products
+    const topProducts = Object.values(productSales).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+    const topProductsDiv = document.getElementById('top-products');
+    if (topProducts.length === 0) {
+      topProductsDiv.innerHTML = '<p style="color:var(--gray-500);text-align:center;padding:20px;">No sales in this period</p>';
+    } else {
+      topProductsDiv.innerHTML = topProducts.map((p, i) => `
+        <div class="top-product-item">
+          <div class="top-product-rank">${i + 1}</div>
+          <div class="top-product-info">
+            <div class="top-product-name">${escapeHtml(p.name)}</div>
+            <div class="top-product-meta">${p.qty} sold</div>
+          </div>
+          <div class="top-product-revenue">${money(p.revenue)}</div>
+        </div>
+      `).join('');
+    }
+    
+    // Staff performance
+    const sortedStaff = Object.values(staffSales).sort((a, b) => b.total - a.total);
+    const staffReportDiv = document.getElementById('staff-report');
+    if (sortedStaff.length === 0) {
+      staffReportDiv.innerHTML = '<p style="color:var(--gray-500);text-align:center;padding:20px;">No sales in this period</p>';
+    } else {
+      staffReportDiv.innerHTML = sortedStaff.map((s, i) => {
+        const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1;
+        const rankClass = i < 3 ? `rank-${i + 1}` : '';
+        return `
+          <div class="staff-performance-item">
+            <div class="staff-rank ${rankClass}">${rankIcon}</div>
+            <div class="staff-avatar-small">${s.name.charAt(0).toUpperCase()}</div>
+            <div class="staff-performance-details">
+              <div class="staff-performance-name">${escapeHtml(s.name)}</div>
+              <div class="staff-performance-meta">${s.count} sale${s.count !== 1 ? 's' : ''}</div>
+            </div>
+            <div class="staff-performance-total">${money(s.total)}</div>
+          </div>
+        `;
+      }).join('');
+    }
+  } catch (err) {
+    showToast('Error', 'Could not load reports: ' + err.message, 'error');
+  }
+}
+
+function renderSalesChart(salesByDay, period) {
+  const canvas = document.getElementById('sales-chart');
+  if (!canvas) return;
+  
+  // Prepare data
+  const now = new Date();
+  const labels = [];
+  const data = [];
+  
+  let days = 1;
+  if (period === 'week') days = 7;
+  else if (period === 'month') days = 30;
+  
+  if (period === 'today' || period === 'yesterday') {
+    const targetDate = period === 'today' ? new Date() : new Date(now.getTime() - 86400000);
+    const dateKey = targetDate.toISOString().split('T')[0];
+    // Show hourly breakdown - just use single point for simplicity
+    labels.push(targetDate.toLocaleDateString('en-ZM', { weekday: 'short', month: 'short', day: 'numeric' }));
+    data.push(salesByDay[dateKey] || 0);
+  } else {
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 86400000);
+      const dateKey = date.toISOString().split('T')[0];
+      labels.push(date.toLocaleDateString('en-ZM', { month: 'short', day: 'numeric' }));
+      data.push(salesByDay[dateKey] || 0);
+    }
+  }
+  
+  // Destroy existing chart if any
+  if (salesChart) {
+    salesChart.destroy();
+  }
+  
+  const isDark = document.body.classList.contains('dark-mode');
+  const textColor = isDark ? '#cbd5e1' : '#475569';
+  const gridColor = isDark ? '#334155' : '#e2e8f0';
+  
+  salesChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Sales (' + CURRENCY + ')',
+        data: data,
+        backgroundColor: 'rgba(99, 102, 241, 0.2)',
+        borderColor: '#6366f1',
+        borderWidth: 3,
+        pointBackgroundColor: '#6366f1',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 6,
+        pointHoverRadius: 8,
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          padding: 12,
+          borderColor: '#6366f1',
+          borderWidth: 1,
+          callbacks: {
+            label: function(context) {
+              return CURRENCY + ' ' + context.parsed.y.toLocaleString('en-ZM', { minimumFractionDigits: 2 });
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: { color: gridColor },
+          ticks: {
+            color: textColor,
+            callback: function(value) {
+              return CURRENCY + ' ' + value.toLocaleString('en-ZM');
+            }
+          }
+        },
+        x: {
+          grid: { color: gridColor },
+          ticks: { color: textColor }
+        }
+      }
+    }
+  });
+}
+
+// ==========================================
 // DASHBOARD
 // ==========================================
 async function loadDashboard() {
   if (!currentOrgId) return;
   document.getElementById('stat-total-products').textContent = products.length;
-  const lowStock = products.filter(p => p.qtyOnHand < 10).length;
+  const lowStock = getLowStockItems().length + getOutOfStockItems().length;
   document.getElementById('stat-low-stock').textContent = lowStock;
   
   const today = new Date();
@@ -1211,12 +1507,9 @@ async function loadDashboard() {
     const o = doc.data();
     todaySales += o.total || 0;
     todayOrders++;
-    
     const staffId = o.cashierId || 'unknown';
     const staffName = o.cashierName || 'Unknown';
-    if (!salesByStaff[staffId]) {
-      salesByStaff[staffId] = { name: staffName, count: 0, total: 0 };
-    }
+    if (!salesByStaff[staffId]) salesByStaff[staffId] = { name: staffName, count: 0, total: 0 };
     salesByStaff[staffId].count++;
     salesByStaff[staffId].total += o.total || 0;
   });
@@ -1285,6 +1578,14 @@ function toggleDarkMode() {
       icon.classList.add('bx-moon');
     }
   });
+  // Reload chart if on reports page
+  if (document.getElementById('reports-tab').classList.contains('active')) {
+    const activeFilter = document.querySelector('.filter-btn.active');
+    if (activeFilter) {
+      const period = activeFilter.id.replace('filter-', '');
+      loadReports(period);
+    }
+  }
   showToast(isDark ? 'Dark Mode' : 'Light Mode', 'Enabled', 'info');
 }
 
@@ -1327,10 +1628,7 @@ function shadeColor(color, percent) {
   R = Math.min(255, Math.max(0, R));
   G = Math.min(255, Math.max(0, G));
   B = Math.min(255, Math.max(0, B));
-  const RR = R.toString(16).padStart(2, '0');
-  const GG = G.toString(16).padStart(2, '0');
-  const BB = B.toString(16).padStart(2, '0');
-  return '#' + RR + GG + BB;
+  return '#' + R.toString(16).padStart(2, '0') + G.toString(16).padStart(2, '0') + B.toString(16).padStart(2, '0');
 }
 
 // ==========================================
@@ -1364,9 +1662,7 @@ async function saveBusinessInfo() {
     currentOrg.email = email;
     document.getElementById('business-name').textContent = name;
     showToast('Success', 'Business info updated', 'success');
-  } catch (err) {
-    showToast('Error', err.message, 'error');
-  }
+  } catch (err) { showToast('Error', err.message, 'error'); }
 }
 
 async function saveTaxSettings() {
@@ -1387,13 +1683,11 @@ async function saveTaxSettings() {
     renderCart();
     renderProducts();
     showToast('Success', 'Tax settings updated', 'success');
-  } catch (err) {
-    showToast('Error', err.message, 'error');
-  }
+  } catch (err) { showToast('Error', err.message, 'error'); }
 }
 
 // ==========================================
-// BARCODE SCANNER - NUCLEAR FIX
+// BARCODE SCANNER
 // ==========================================
 async function openScanner() {
   const modal = document.getElementById('scanner-modal');
@@ -1403,7 +1697,6 @@ async function openScanner() {
   if (flashBtn) flashBtn.style.display = 'none';
   status.textContent = 'Requesting camera access...';
   
-  // Reset all scan trackers
   lastScannedCode = null;
   lastScanTime = 0;
   scannerProcessing = false;
@@ -1413,7 +1706,6 @@ async function openScanner() {
     const videoInputDevices = await codeReader.listVideoInputDevices();
     if (videoInputDevices.length === 0) {
       status.textContent = '❌ No camera found';
-      showToast('Error', 'No camera detected on this device', 'error');
       return;
     }
     let deviceId = videoInputDevices[0].deviceId;
@@ -1431,9 +1723,7 @@ async function openScanner() {
     setTimeout(checkFlashlightSupport, 1500);
     setTimeout(checkFlashlightSupport, 3000);
   } catch (err) {
-    console.error(err);
     status.textContent = '❌ Camera error: ' + err.message;
-    showToast('Camera Error', err.message, 'error');
   }
 }
 
@@ -1448,16 +1738,13 @@ async function checkFlashlightSupport() {
     const capabilities = track.getCapabilities ? track.getCapabilities() : {};
     if (capabilities.torch) {
       flashBtn.style.display = 'flex';
-      if (!flashlightOn) flashBtn.classList.remove('active');
     } else {
       try {
         await track.applyConstraints({ advanced: [{ torch: false }] });
         flashBtn.style.display = 'flex';
-      } catch (e) {
-        flashBtn.style.display = 'none';
-      }
+      } catch (e) { flashBtn.style.display = 'none'; }
     }
-  } catch (err) { console.log('Flashlight check error:', err); }
+  } catch (err) {}
 }
 
 async function toggleFlashlight() {
@@ -1476,40 +1763,19 @@ async function toggleFlashlight() {
       showToast('Flashlight', 'Turned off', 'info');
     }
   } catch (err) {
-    showToast('Error', 'Could not toggle flashlight', 'error');
     flashlightOn = !flashlightOn;
   }
 }
 
 function handleScannedBarcode(code) {
   const now = Date.now();
+  if (scannerProcessing) return;
+  if (lastScannedCode === code && (now - lastScanTime) < 3000) return;
+  if ((now - lastScanTime) < 500) return;
   
-  // NUCLEAR PROTECTION: Multiple checks
-  
-  // Check 1: Are we already processing a scan?
-  if (scannerProcessing) {
-    console.log('⚠️ Scanner busy, ignoring:', code);
-    return;
-  }
-  
-  // Check 2: Is this the same code scanned recently?
-  if (lastScannedCode === code && (now - lastScanTime) < 3000) {
-    console.log('⚠️ Duplicate scan blocked:', code);
-    return;
-  }
-  
-  // Check 3: Any scan within 500ms is ignored (prevents rapid double-fires)
-  if ((now - lastScanTime) < 500) {
-    console.log('⚠️ Scan too fast, ignoring');
-    return;
-  }
-  
-  // LOCK immediately
   scannerProcessing = true;
   lastScannedCode = code;
   lastScanTime = now;
-  
-  console.log('✓ Processing scan:', code);
   
   if (navigator.vibrate) navigator.vibrate(100);
   
@@ -1519,23 +1785,16 @@ function handleScannedBarcode(code) {
     if (product.qtyOnHand === 0) {
       document.getElementById('scanner-status').textContent = `⚠️ Out of stock: ${product.name}`;
       showToast('Out of Stock', product.name, 'warning');
-      // Release lock but keep the code cooldown
       setTimeout(() => { scannerProcessing = false; }, 500);
       return;
     }
-    
     addToCart(product.id);
     document.getElementById('scanner-status').textContent = `✓ Added: ${product.name}`;
     showToast('Scanned!', `Added: ${product.name}`, 'success');
-    
-    // Close scanner immediately after successful scan
-    setTimeout(() => {
-      closeScanner();
-    }, 800);
+    setTimeout(closeScanner, 800);
   } else {
     document.getElementById('scanner-status').textContent = `❌ Not found: ${code}`;
     showToast('Not Found', `Barcode: ${code}`, 'warning');
-    
     if (currentUserData?.role !== 'cashier') {
       setTimeout(() => {
         if (confirm(`Product with barcode "${code}" not found.\n\nAdd as new product?`)) {
@@ -1544,12 +1803,10 @@ function handleScannedBarcode(code) {
           document.getElementById('new-sku').value = code;
           document.getElementById('new-name').focus();
         } else {
-          // Release lock if they cancel
           scannerProcessing = false;
         }
       }, 1000);
     } else {
-      // Release lock after showing error
       setTimeout(() => { scannerProcessing = false; }, 2000);
     }
   }
@@ -1558,32 +1815,20 @@ function handleScannedBarcode(code) {
 function closeScanner() {
   const modal = document.getElementById('scanner-modal');
   modal.classList.remove('active');
-  
   if (flashlightOn && currentStream) {
     const track = currentStream.getVideoTracks()[0];
     if (track) {
       try { track.applyConstraints({ advanced: [{ torch: false }] }); } catch (err) {}
     }
   }
-  
   flashlightOn = false;
   currentStream = null;
-  
-  // Reset ALL scan trackers
   lastScannedCode = null;
   lastScanTime = 0;
   scannerProcessing = false;
-  
   const flashBtn = document.getElementById('flashlight-btn');
-  if (flashBtn) { 
-    flashBtn.classList.remove('active'); 
-    flashBtn.style.display = 'none'; 
-  }
-  
-  if (codeReader) { 
-    codeReader.reset(); 
-    codeReader = null; 
-  }
+  if (flashBtn) { flashBtn.classList.remove('active'); flashBtn.style.display = 'none'; }
+  if (codeReader) { codeReader.reset(); codeReader = null; }
 }
 
 // ==========================================
@@ -1694,7 +1939,6 @@ function downloadReceiptPDF() {
   doc.setFont(undefined, 'normal');
   if (currentOrg?.address) { doc.text(currentOrg.address, centerX, y, { align: 'center' }); y += 4; }
   if (currentOrg?.phone) { doc.text('Tel: ' + currentOrg.phone, centerX, y, { align: 'center' }); y += 4; }
-  if (currentOrg?.email) { doc.text(currentOrg.email, centerX, y, { align: 'center' }); y += 4; }
   y += 2;
   doc.line(5, y, 75, y); y += 5;
   const orderNum = 'R' + Date.now().toString().slice(-8);
@@ -1703,7 +1947,7 @@ function downloadReceiptPDF() {
   doc.setFont(undefined, 'normal');
   doc.text('Receipt #: ' + orderNum, 5, y); y += 4;
   doc.text('Date: ' + new Date().toLocaleString('en-ZM'), 5, y); y += 4;
-  doc.text('Cashier: ' + (currentReceipt.cashierName || currentUserData?.fullName || 'Unknown'), 5, y); y += 5;
+  doc.text('Cashier: ' + (currentReceipt.cashierName || 'Unknown'), 5, y); y += 5;
   doc.line(5, y, 75, y); y += 5;
   doc.setFont(undefined, 'bold');
   doc.text('ITEM', 5, y); doc.text('TOTAL', 75, y, { align: 'right' }); y += 4;
@@ -1727,9 +1971,7 @@ function downloadReceiptPDF() {
   doc.text('Change:', 5, y); doc.text(money(currentReceipt.changeGiven), 75, y, { align: 'right' }); y += 6;
   doc.line(5, y, 75, y); y += 5;
   doc.setFont(undefined, 'bold');
-  doc.text('Thank you for your business!', centerX, y, { align: 'center' }); y += 4;
-  doc.setFont(undefined, 'normal');
-  doc.text('Please come again', centerX, y, { align: 'center' });
+  doc.text('Thank you for your business!', centerX, y, { align: 'center' });
   doc.save(`Receipt_${orderNum}.pdf`);
   showToast('Downloaded!', 'Receipt saved as PDF', 'success');
 }
@@ -1751,13 +1993,11 @@ async function shareReceipt() {
   if (navigator.share) {
     try {
       await navigator.share({ title: `Receipt from ${businessName}`, text: text });
-    } catch (err) {
-      if (err.name !== 'AbortError') showToast('Error', 'Could not share', 'error');
-    }
+    } catch (err) {}
   } else {
     try {
       await navigator.clipboard.writeText(text);
-      showToast('Copied!', 'Receipt copied. Paste in WhatsApp!', 'success');
+      showToast('Copied!', 'Receipt copied to clipboard', 'success');
     } catch (err) {
       window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
     }

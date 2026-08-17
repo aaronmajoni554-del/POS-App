@@ -13,10 +13,16 @@
   
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
   
-  <link rel="stylesheet" href="styles.css?v=14" />
+  <link rel="stylesheet" href="styles.css?v=15" />
 </head>
 <body>
   <div id="app">
+    
+    <!-- OFFLINE INDICATOR -->
+    <div id="offline-indicator" class="offline-indicator" style="display:none;">
+      <i class='bx bx-wifi-off'></i>
+      <span>Offline Mode - Changes will sync when online</span>
+    </div>
     
     <!-- LOGIN SCREEN -->
     <div id="login-screen" class="screen active auth-screen">
@@ -27,9 +33,9 @@
           <p>The complete point of sale solution</p>
           <div class="features-list">
             <div><i class='bx bx-check-circle'></i> Multi-tenant business support</div>
-            <div><i class='bx bx-check-circle'></i> Real-time inventory tracking</div>
+            <div><i class='bx bx-check-circle'></i> Works offline & online</div>
+            <div><i class='bx bx-check-circle'></i> Advanced reports & analytics</div>
             <div><i class='bx bx-check-circle'></i> Multiple staff accounts</div>
-            <div><i class='bx bx-check-circle'></i> Works on any device</div>
           </div>
         </div>
         <div class="auth-form">
@@ -146,7 +152,7 @@
             <div><i class='bx bx-gift'></i> 100% Free to start</div>
             <div><i class='bx bx-group'></i> Invite unlimited staff</div>
             <div><i class='bx bx-shield-quarter'></i> Secure cloud storage</div>
-            <div><i class='bx bx-support'></i> No credit card required</div>
+            <div><i class='bx bx-support'></i> Works offline too</div>
           </div>
         </div>
         <div class="auth-form">
@@ -205,9 +211,13 @@
           </button>
           <button onclick="showTab('products')" class="nav-item manager-plus" id="tab-products">
             <i class='bx bx-package'></i> <span>Products</span>
+            <span class="nav-badge" id="low-stock-badge" style="display:none;">0</span>
           </button>
           <button onclick="showTab('orders')" class="nav-item" id="tab-orders">
             <i class='bx bx-receipt'></i> <span>Orders</span>
+          </button>
+          <button onclick="showTab('reports')" class="nav-item manager-plus" id="tab-reports">
+            <i class='bx bx-chart'></i> <span>Reports</span>
           </button>
           <button onclick="showTab('dashboard')" class="nav-item manager-plus" id="tab-dashboard">
             <i class='bx bx-line-chart'></i> <span>Dashboard</span>
@@ -332,6 +342,18 @@
             </div>
           </div>
           
+          <!-- Low Stock Alert Card -->
+          <div id="low-stock-alert" class="low-stock-alert" style="display:none;">
+            <div class="low-stock-header">
+              <div>
+                <h3><i class='bx bx-error'></i> Low Stock Warning</h3>
+                <p>These items need restocking soon</p>
+              </div>
+              <span class="low-stock-count" id="low-stock-count">0</span>
+            </div>
+            <div id="low-stock-list" class="low-stock-list"></div>
+          </div>
+          
           <div class="card">
             <h3><i class='bx bx-plus-circle'></i> Add New Product</h3>
             <div class="form-grid">
@@ -352,6 +374,10 @@
                 <input type="number" id="new-qty" placeholder="0" />
               </div>
               <div class="form-field">
+                <label>Low Stock Alert</label>
+                <input type="number" id="new-threshold" placeholder="10" value="10" title="Alert when stock falls below this number" />
+              </div>
+              <div class="form-field">
                 <label>&nbsp;</label>
                 <button onclick="addProduct(event)" class="btn btn-primary">
                   <i class='bx bx-plus'></i> Add Product
@@ -370,6 +396,7 @@
                     <th>Product Name</th>
                     <th>Price (K)</th>
                     <th>Stock</th>
+                    <th>Alert At</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -403,6 +430,74 @@
                 <tbody id="orders-tbody"></tbody>
               </table>
             </div>
+          </div>
+        </div>
+
+        <!-- REPORTS TAB - NEW! -->
+        <div id="reports-tab" class="tab-content">
+          <div class="page-header">
+            <div>
+              <h2><i class='bx bx-chart'></i> Sales Reports</h2>
+              <p class="subtitle">Analyze your business performance</p>
+            </div>
+            <div class="report-filters">
+              <button onclick="loadReports('today')" class="filter-btn active" id="filter-today">Today</button>
+              <button onclick="loadReports('yesterday')" class="filter-btn" id="filter-yesterday">Yesterday</button>
+              <button onclick="loadReports('week')" class="filter-btn" id="filter-week">Last 7 Days</button>
+              <button onclick="loadReports('month')" class="filter-btn" id="filter-month">Last 30 Days</button>
+            </div>
+          </div>
+
+          <!-- Summary Stats -->
+          <div class="stats-grid">
+            <div class="stat-card gradient-blue">
+              <div class="stat-icon"><i class='bx bx-dollar-circle'></i></div>
+              <div class="stat-details">
+                <small>Total Revenue</small>
+                <h2>K <span id="report-revenue">0.00</span></h2>
+              </div>
+            </div>
+            <div class="stat-card gradient-purple">
+              <div class="stat-icon"><i class='bx bx-shopping-bag'></i></div>
+              <div class="stat-details">
+                <small>Total Orders</small>
+                <h2 id="report-orders">0</h2>
+              </div>
+            </div>
+            <div class="stat-card gradient-green">
+              <div class="stat-icon"><i class='bx bx-cart'></i></div>
+              <div class="stat-details">
+                <small>Items Sold</small>
+                <h2 id="report-items">0</h2>
+              </div>
+            </div>
+            <div class="stat-card gradient-orange">
+              <div class="stat-icon"><i class='bx bx-trending-up'></i></div>
+              <div class="stat-details">
+                <small>Avg Order Value</small>
+                <h2>K <span id="report-avg">0.00</span></h2>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sales Chart -->
+          <div class="card">
+            <h3><i class='bx bx-line-chart'></i> Sales Trend</h3>
+            <div class="chart-container">
+              <canvas id="sales-chart"></canvas>
+            </div>
+          </div>
+
+          <!-- Top Products -->
+          <div class="card">
+            <h3><i class='bx bx-star'></i> Top Selling Products</h3>
+            <div id="top-products">Loading...</div>
+          </div>
+
+          <!-- Staff Performance -->
+          <div class="card">
+            <h3><i class='bx bx-trophy'></i> Staff Performance</h3>
+            <div id="staff-report">Loading...</div>
           </div>
         </div>
 
@@ -468,7 +563,7 @@
           <div class="card">
             <h3><i class='bx bx-mail-send'></i> Invite Staff Member</h3>
             <p style="color:var(--gray-500);font-size:14px;margin-bottom:16px;">
-              Generate an invite code and share it with your staff. They'll use it to create their account.
+              Generate an invite code and share it with your staff.
             </p>
             <div class="form-grid">
               <div class="form-field">
@@ -502,11 +597,7 @@
               <table>
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Code</th>
-                    <th>Action</th>
+                    <th>Name</th><th>Email</th><th>Role</th><th>Code</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody id="invitations-tbody"></tbody>
@@ -520,11 +611,7 @@
               <table>
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Sales</th>
-                    <th>Action</th>
+                    <th>Name</th><th>Email</th><th>Role</th><th>Sales</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody id="staff-tbody"></tbody>
@@ -687,6 +774,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="app.js?v=14"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>
