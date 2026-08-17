@@ -13,7 +13,7 @@
   
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
   
-  <link rel="stylesheet" href="styles.css?v=11" />
+  <link rel="stylesheet" href="styles.css?v=13" />
 </head>
 <body>
   <div id="app">
@@ -51,13 +51,13 @@
               <input type="checkbox" id="remember-me" />
               <span>Remember me</span>
             </label>
-            <a href="#" onclick="showForgotPassword()" class="forgot-link">Forgot password?</a>
+            <a href="#" onclick="showForgotPassword(); return false;" class="forgot-link">Forgot password?</a>
           </div>
           <button onclick="login()" class="btn btn-primary btn-block">
             <i class='bx bx-log-in'></i> Sign In
           </button>
-          <p class="link-text">New business? <a href="#" onclick="showSignup()">Register here</a></p>
-          <p class="link-text">Staff member? <a href="#" onclick="showJoinTeam()">Join with invite code</a></p>
+          <p class="link-text">New business? <a href="#" onclick="showSignup(); return false;">Register here</a></p>
+          <p class="link-text">Staff member? <a href="#" onclick="showJoinTeam(); return false;">Join with invite code</a></p>
           <p id="login-msg" class="msg"></p>
         </div>
       </div>
@@ -90,9 +90,47 @@
             <i class='bx bx-send'></i> Send Reset Link
           </button>
           <p class="link-text">
-            <a href="#" onclick="showLogin()"><i class='bx bx-arrow-back'></i> Back to sign in</a>
+            <a href="#" onclick="showLogin(); return false;"><i class='bx bx-arrow-back'></i> Back to sign in</a>
           </p>
           <p id="forgot-msg" class="msg"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- JOIN TEAM SCREEN (Staff with Invite Code) -->
+    <div id="join-screen" class="screen auth-screen">
+      <div class="auth-container">
+        <div class="auth-brand">
+          <div class="brand-logo"><i class='bx bx-user-plus'></i></div>
+          <h1>Join Your Team</h1>
+          <p>Use the invitation code from your admin</p>
+          <div class="features-list">
+            <div><i class='bx bx-key'></i> Enter your invite code</div>
+            <div><i class='bx bx-lock-alt'></i> Create secure password</div>
+            <div><i class='bx bx-check-circle'></i> Start selling immediately</div>
+            <div><i class='bx bx-support'></i> Ask admin for help</div>
+          </div>
+        </div>
+        <div class="auth-form">
+          <div class="form-header">
+            <h2>Staff Sign Up</h2>
+            <p>Join your team's POS</p>
+          </div>
+          <div class="input-group">
+            <i class='bx bx-key'></i>
+            <input type="text" id="invite-code" placeholder="Invitation Code (e.g., ABC-XYZ)" style="text-transform:uppercase;" />
+          </div>
+          <div class="input-group">
+            <i class='bx bx-lock-alt'></i>
+            <input type="password" id="join-password" placeholder="Create your password (min 6 chars)" />
+            <i class='bx bx-hide toggle-password' onclick="togglePassword('join-password', this)"></i>
+          </div>
+          <button onclick="joinWithCode()" class="btn btn-primary btn-block">
+            <i class='bx bx-log-in'></i> Join Team
+          </button>
+          <p class="link-text">Already have an account? <a href="#" onclick="showLogin(); return false;">Sign in</a></p>
+          <p class="link-text">Business owner? <a href="#" onclick="showSignup(); return false;">Register your business</a></p>
+          <p id="join-msg" class="msg"></p>
         </div>
       </div>
     </div>
@@ -137,46 +175,8 @@
           <button onclick="signup()" class="btn btn-primary btn-block">
             <i class='bx bx-check-circle'></i> Create Business Account
           </button>
-          <p class="link-text">Already have an account? <a href="#" onclick="showLogin()">Sign in</a></p>
+          <p class="link-text">Already have an account? <a href="#" onclick="showLogin(); return false;">Sign in</a></p>
           <p id="signup-msg" class="msg"></p>
-        </div>
-      </div>
-    </div>
-
-    <!-- JOIN TEAM SCREEN (Staff with Invite) -->
-    <div id="join-screen" class="screen auth-screen">
-      <div class="auth-container">
-        <div class="auth-brand">
-          <div class="brand-logo"><i class='bx bx-user-plus'></i></div>
-          <h1>Join Your Team</h1>
-          <p>Use the invitation code from your admin</p>
-          <div class="features-list">
-            <div><i class='bx bx-key'></i> Enter your invite code</div>
-            <div><i class='bx bx-lock-alt'></i> Create secure password</div>
-            <div><i class='bx bx-check-circle'></i> Start selling immediately</div>
-            <div><i class='bx bx-support'></i> Ask admin for help</div>
-          </div>
-        </div>
-        <div class="auth-form">
-          <div class="form-header">
-            <h2>Staff Sign Up</h2>
-            <p>Join your team's POS</p>
-          </div>
-          <div class="input-group">
-            <i class='bx bx-key'></i>
-            <input type="text" id="invite-code" placeholder="Invitation Code (e.g., ABC-123)" style="text-transform:uppercase;" />
-          </div>
-          <div class="input-group">
-            <i class='bx bx-lock-alt'></i>
-            <input type="password" id="join-password" placeholder="Create your password (min 6 chars)" />
-            <i class='bx bx-hide toggle-password' onclick="togglePassword('join-password', this)"></i>
-          </div>
-          <button onclick="joinWithCode()" class="btn btn-primary btn-block">
-            <i class='bx bx-log-in'></i> Join Team
-          </button>
-          <p class="link-text">Already have an account? <a href="#" onclick="showLogin()">Sign in</a></p>
-          <p class="link-text">Business owner? <a href="#" onclick="showSignup()">Register your business</a></p>
-          <p id="join-msg" class="msg"></p>
         </div>
       </div>
     </div>
@@ -445,7 +445,6 @@
             </div>
           </div>
           
-          <!-- Staff Performance -->
           <div class="card">
             <h3><i class='bx bx-trophy'></i> Top Performing Staff (Today)</h3>
             <div id="staff-performance">Loading...</div>
@@ -490,7 +489,7 @@
               </div>
               <div class="form-field">
                 <label>&nbsp;</label>
-                <button onclick="createInvitation()" class="btn btn-primary">
+                <button id="generate-invite-btn" onclick="createInvitation()" class="btn btn-primary">
                   <i class='bx bx-envelope'></i> Generate Invite
                 </button>
               </div>
@@ -688,6 +687,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>

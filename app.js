@@ -33,6 +33,7 @@ let searchTimeout = null;
 let currentSuggestions = [];
 let highlightedIndex = -1;
 let currentInviteCode = null;
+let creatingInvite = false;
 
 let TAX_RATE = 0.16;
 let CURRENCY = 'K';
@@ -55,12 +56,32 @@ function moneyValue(amount) {
 // SCREEN NAVIGATION
 // ==========================================
 function toggleScreen(id) {
+  const target = document.getElementById(id);
+  if (!target) {
+    console.error('Screen not found:', id);
+    alert('Error: Screen "' + id + '" not found. Please refresh the page.');
+    return;
+  }
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
+  target.classList.add('active');
 }
-function showLogin() { toggleScreen('login-screen'); }
-function showSignup() { toggleScreen('signup-screen'); }
-function showJoinTeam() { toggleScreen('join-screen'); }
+
+function showLogin() { 
+  toggleScreen('login-screen'); 
+}
+
+function showSignup() { 
+  toggleScreen('signup-screen'); 
+}
+
+function showJoinTeam() { 
+  toggleScreen('join-screen');
+  setTimeout(() => {
+    const input = document.getElementById('invite-code');
+    if (input) input.focus();
+  }, 100);
+}
+
 function showForgotPassword() {
   toggleScreen('forgot-screen');
   const loginEmail = document.getElementById('email').value;
@@ -93,7 +114,6 @@ function applyRolePermissions() {
 }
 
 function showTab(tab) {
-  // Check permissions
   if ((tab === 'staff' || tab === 'settings') && currentUserData?.role !== 'admin') {
     showToast('Access Denied', 'Only admins can access this', 'warning');
     return;
@@ -262,7 +282,7 @@ async function signup() {
 }
 
 // ==========================================
-// AUTH - JOIN TEAM (Staff with Invite)
+// AUTH - JOIN TEAM
 // ==========================================
 async function joinWithCode() {
   const code = document.getElementById('invite-code').value.trim().toUpperCase();
@@ -280,7 +300,6 @@ async function joinWithCode() {
   msg.textContent = 'Verifying invite code...';
 
   try {
-    // Find invitation
     const inviteSnap = await db.collection('invitations')
       .where('code', '==', code)
       .where('status', '==', 'pending')
@@ -297,11 +316,9 @@ async function joinWithCode() {
 
     msg.textContent = 'Creating your account...';
 
-    // Create auth user
     const userCred = await auth.createUserWithEmailAndPassword(invite.email, password);
     const uid = userCred.user.uid;
 
-    // Create profile
     await db.collection('users').doc(uid).set({
       fullName: invite.fullName,
       email: invite.email,
@@ -310,7 +327,6 @@ async function joinWithCode() {
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
-    // Mark invitation as used
     await db.collection('invitations').doc(inviteDoc.id).update({
       status: 'accepted',
       acceptedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -378,27 +394,58 @@ function generateInviteCode() {
 }
 
 async function createInvitation() {
-  if (currentUserData?.role !== 'admin') {
-    showToast('Access Denied', 'Only admins can invite staff', 'error');
+  if (creatingInvite) {
+    console.log('Already creating invite, blocking duplicate call');
     return;
   }
-
-  const fullName = document.getElementById('staff-name').value.trim();
-  const email = document.getElementById('staff-email').value.trim();
-  const role = document.getElementById('staff-role').value;
-
-  if (!fullName || !email) {
-    showToast('Missing Info', 'Please fill name and email', 'warning');
-    return;
+  
+  const btn = document.getElementById('generate-invite-btn');
+  if (btn && btn.disabled) return;
+  
+  creatingInvite = true;
+  
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.style.pointerEvents = 'none';
+    btn.style.cursor = 'not-allowed';
   }
-  if (!email.includes('@')) {
-    showToast('Invalid Email', 'Please enter a valid email', 'warning');
-    return;
-  }
-
-  const code = generateInviteCode();
-
+  
   try {
+    if (currentUserData?.role !== 'admin') {
+      showToast('Access Denied', 'Only admins can invite staff', 'error');
+      return;
+    }
+
+    const fullName = document.getElementById('staff-name').value.trim();
+    const email = document.getElementById('staff-email').value.trim().toLowerCase();
+    const role = document.getElementById('staff-role').value;
+
+    if (!fullName || !email) {
+      showToast('Missing Info', 'Please fill name and email', 'warning');
+      return;
+    }
+    if (!email.includes('@')) {
+      showToast('Invalid Email', 'Please enter a valid email', 'warning');
+      return;
+    }
+
+    const existing = await db.collection('invitations')
+      .where('organizationId', '==', currentOrgId)
+      .where('email', '==', email)
+      .where('status', '==', 'pending')
+      .get();
+    
+    if (!existing.empty) {
+      showToast('Already Invited', `${email} already has a pending invitation. Delete it first.`, 'warning');
+      return;
+    }
+
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Creating...';
+
+    const code = generateInviteCode();
+
     await db.collection('invitations').add({
       code: code,
       email: email,
@@ -416,14 +463,27 @@ async function createInvitation() {
     document.getElementById('invite-code-display').textContent = code;
     document.getElementById('invite-code-modal').classList.add('active');
 
-    // Clear form
     document.getElementById('staff-name').value = '';
     document.getElementById('staff-email').value = '';
     document.getElementById('staff-role').value = 'cashier';
 
     await loadStaffData();
+    showToast('Success!', `Invite code created for ${fullName}`, 'success');
+    
+    if (btn) btn.innerHTML = originalText;
   } catch (err) {
+    console.error('Invite error:', err);
     showToast('Error', err.message, 'error');
+  } finally {
+    setTimeout(() => {
+      creatingInvite = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.pointerEvents = 'auto';
+        btn.style.cursor = 'pointer';
+      }
+    }, 3000);
   }
 }
 
@@ -434,10 +494,8 @@ function closeInviteModal() {
 
 function copyInviteCode() {
   if (!currentInviteCode) return;
-  
   const btn = event.target.closest('button');
   const originalText = btn.innerHTML;
-  
   navigator.clipboard.writeText(currentInviteCode).then(() => {
     btn.innerHTML = '<i class="bx bx-check"></i> Copied!';
     btn.classList.add('copied');
@@ -447,7 +505,6 @@ function copyInviteCode() {
     }, 2000);
     showToast('Copied!', 'Invite code copied to clipboard', 'success');
   }).catch(() => {
-    // Fallback
     const input = document.createElement('input');
     input.value = currentInviteCode;
     document.body.appendChild(input);
@@ -460,25 +517,21 @@ function copyInviteCode() {
 
 async function shareInviteLink() {
   if (!currentInviteCode) return;
-  
   const orgName = currentOrg?.name || 'our business';
   const text = `You've been invited to join *${orgName}* on ModernPOS!\n\n` +
     `Your invitation code is: *${currentInviteCode}*\n\n` +
     `Go to: ${window.location.origin}${window.location.pathname}\n\n` +
-    `Click "Join with invite code" and enter the code above to create your account.`;
-
+    `Click "Join with invite code" and enter the code above.`;
   if (navigator.share) {
     try {
       await navigator.share({ title: `Invitation to ${orgName}`, text: text });
     } catch (err) {
       if (err.name !== 'AbortError') {
-        const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-        window.open(url, '_blank');
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
       }
     }
   } else {
-    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   }
 }
 
@@ -508,10 +561,10 @@ async function loadInvitations() {
           <td>${roleBadge}</td>
           <td><code style="background:var(--gray-100);padding:2px 8px;border-radius:4px;font-weight:700;">${inv.code}</code></td>
           <td>
-            <button onclick="reshowInvite('${inv.code}', '${escapeHtml(inv.fullName)}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;">
+            <button onclick="reshowInvite('${inv.code}', '${escapeHtml(inv.fullName).replace(/'/g, "\\'")}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;" title="View code">
               <i class='bx bx-show'></i>
             </button>
-            <button onclick="deleteInvitation('${doc.id}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px;">
+            <button onclick="deleteInvitation('${doc.id}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px;" title="Delete">
               <i class='bx bx-trash'></i>
             </button>
           </td>
@@ -549,7 +602,6 @@ async function loadStaffMembers() {
   if (!tbody) return;
   
   try {
-    // Get all users in this organization
     const snap = await db.collection('users')
       .where('organizationId', '==', currentOrgId)
       .get();
@@ -557,29 +609,41 @@ async function loadStaffMembers() {
     const users = [];
     snap.forEach(doc => users.push({ id: doc.id, ...doc.data() }));
     
-    // Get sales counts for each user
-    const ordersSnap = await db.collection('organizations').doc(currentOrgId)
-      .collection('orders').get();
-    
-    const salesByUser = {};
-    ordersSnap.forEach(doc => {
-      const order = doc.data();
-      if (order.cashierId) {
-        if (!salesByUser[order.cashierId]) {
-          salesByUser[order.cashierId] = { count: 0, total: 0 };
-        }
-        salesByUser[order.cashierId].count++;
-        salesByUser[order.cashierId].total += order.total || 0;
-      }
+    users.sort((a, b) => {
+      const order = { admin: 1, manager: 2, cashier: 3 };
+      return (order[a.role] || 4) - (order[b.role] || 4);
     });
     
-    const rows = [];
-    users.forEach(user => {
+    let salesByUser = {};
+    try {
+      const ordersSnap = await db.collection('organizations').doc(currentOrgId)
+        .collection('orders').get();
+      
+      ordersSnap.forEach(doc => {
+        const order = doc.data();
+        if (order.cashierId) {
+          if (!salesByUser[order.cashierId]) {
+            salesByUser[order.cashierId] = { count: 0, total: 0 };
+          }
+          salesByUser[order.cashierId].count++;
+          salesByUser[order.cashierId].total += order.total || 0;
+        }
+      });
+    } catch (err) {
+      console.log('Could not load sales:', err);
+    }
+    
+    if (users.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:40px;">No team members yet. Invite someone above!</td></tr>';
+      return;
+    }
+    
+    const rows = users.map(user => {
       const roleBadge = `<span class="role-badge ${user.role}">${user.role}</span>`;
       const sales = salesByUser[user.id] || { count: 0, total: 0 };
       const isSelf = user.id === currentUser.uid;
       
-      rows.push(`
+      return `
         <tr>
           <td>
             <strong>${escapeHtml(user.fullName)}</strong>
@@ -593,36 +657,36 @@ async function loadStaffMembers() {
           </td>
           <td>
             ${!isSelf ? `
-              <button onclick="changeUserRole('${user.id}', '${user.role}', '${escapeHtml(user.fullName)}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;">
+              <button onclick="changeUserRole('${user.id}', '${user.role}', '${escapeHtml(user.fullName).replace(/'/g, "\\'")}')" class="btn btn-primary" style="padding:6px 10px;font-size:12px;margin-right:4px;" title="Change role">
                 <i class='bx bx-edit'></i>
               </button>
-              <button onclick="removeStaff('${user.id}', '${escapeHtml(user.fullName)}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px;">
+              <button onclick="removeStaff('${user.id}', '${escapeHtml(user.fullName).replace(/'/g, "\\'")}')" class="btn btn-danger" style="padding:6px 10px;font-size:12px;" title="Remove">
                 <i class='bx bx-trash'></i>
               </button>
             ` : '<span style="color:var(--gray-400);font-size:12px;">Cannot modify self</span>'}
           </td>
         </tr>
-      `);
+      `;
     });
     
-    tbody.innerHTML = rows.join('') || '<tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:40px;">No team members yet</td></tr>';
+    tbody.innerHTML = rows.join('');
   } catch (err) {
-    console.error(err);
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--danger);padding:40px;">Error loading staff</td></tr>';
+    console.error('Load staff error:', err);
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:40px;">
+      <div style="color:var(--danger);margin-bottom:8px;">⚠️ ${err.message}</div>
+      <small style="color:var(--gray-500);">Check Firestore rules are published</small>
+    </td></tr>`;
   }
 }
 
 async function changeUserRole(userId, currentRole, userName) {
   const newRole = prompt(`Change ${userName}'s role\n\nCurrent: ${currentRole}\n\nEnter new role (admin/manager/cashier):`, currentRole);
-  
   if (!newRole || newRole === currentRole) return;
-  
   const validRoles = ['admin', 'manager', 'cashier'];
   if (!validRoles.includes(newRole.toLowerCase())) {
     showToast('Invalid Role', 'Must be admin, manager, or cashier', 'error');
     return;
   }
-  
   try {
     await db.collection('users').doc(userId).update({ role: newRole.toLowerCase() });
     await loadStaffMembers();
@@ -633,12 +697,22 @@ async function changeUserRole(userId, currentRole, userName) {
 }
 
 async function removeStaff(userId, userName) {
-  if (!confirm(`Remove ${userName} from your team?\n\nThis will delete their access to your POS but not their sales history.`)) return;
+  const warning = `Remove ${userName} from your team?\n\n` +
+    `⚠️ IMPORTANT:\n` +
+    `• Their profile will be deleted\n` +
+    `• Their sales history is kept\n` +
+    `• Their Firebase login still exists\n` +
+    `• They CANNOT sign up again with same email unless you delete their Auth account too\n\n` +
+    `To fully remove them, also delete from:\n` +
+    `Firebase Console → Authentication → Users\n\n` +
+    `Continue?`;
+  
+  if (!confirm(warning)) return;
   
   try {
     await db.collection('users').doc(userId).delete();
     await loadStaffMembers();
-    showToast('Removed', `${userName} removed from team`, 'success');
+    showToast('Profile Removed', `${userName} removed. Also delete from Firebase Auth if needed.`, 'success');
   } catch (err) {
     showToast('Error', err.message, 'error');
   }
@@ -757,17 +831,14 @@ async function deleteProduct(id) {
 }
 
 // ==========================================
-// SMART SEARCH WITH SUGGESTIONS
+// SMART SEARCH
 // ==========================================
 function handleSearchInput(value) {
   const query = value.trim();
   const clearBtn = document.getElementById('clear-search-btn');
   if (clearBtn) clearBtn.style.display = query ? 'flex' : 'none';
-  
   clearTimeout(searchTimeout);
-  
   if (!query) { hideSuggestions(); renderProducts(); return; }
-  
   searchTimeout = setTimeout(() => { showSuggestions(query); }, 150);
 }
 
@@ -781,7 +852,6 @@ function showSuggestions(query) {
   
   currentSuggestions = filtered;
   highlightedIndex = -1;
-  
   const dropdown = document.getElementById('suggestions-dropdown');
   
   if (filtered.length === 0) {
@@ -848,7 +918,6 @@ function selectSuggestion(productId) {
 function handleSuggestionKeys(e) {
   const dropdown = document.getElementById('suggestions-dropdown');
   if (!dropdown.classList.contains('active') || currentSuggestions.length === 0) return;
-  
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     highlightedIndex = Math.min(highlightedIndex + 1, currentSuggestions.length - 1);
@@ -1094,7 +1163,6 @@ async function loadDashboard() {
   document.getElementById('stat-today-sales').textContent = moneyValue(todaySales);
   document.getElementById('stat-today-orders').textContent = todayOrders;
   
-  // Staff Performance
   const staffPerfDiv = document.getElementById('staff-performance');
   const sortedStaff = Object.values(salesByStaff).sort((a, b) => b.total - a.total);
   
@@ -1118,7 +1186,6 @@ async function loadDashboard() {
     }).join('');
   }
   
-  // Recent Activity
   const recentSnap = await db.collection('organizations').doc(currentOrgId)
     .collection('orders').orderBy('createdAt', 'desc').limit(5).get();
   const activityDiv = document.getElementById('recent-activity');
