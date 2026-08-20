@@ -21,7 +21,7 @@
   
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
   
-  <link rel="stylesheet" href="styles.css?v=16" />
+  <link rel="stylesheet" href="styles.css?v=17" />
 </head>
 <body>
   <div id="app">
@@ -319,15 +319,17 @@
                 <span class="badge" id="cart-count">0 items</span>
               </div>
               <div id="cart-items" class="cart-items"></div>
+              
+              <!-- UPDATED CART SUMMARY WITH DYNAMIC IDs -->
               <div class="cart-summary">
-                <div class="summary-row"><span>Subtotal</span><span>K <span id="subtotal">0.00</span></span></div>
-                <div class="summary-row"><span>VAT (16%)</span><span>K <span id="tax">0.00</span></span></div>
-                <div class="summary-row total"><span>TOTAL</span><span>K <span id="total">0.00</span></span></div>
+                <div class="summary-row"><span>Subtotal</span><span id="subtotal-display">K 0.00</span></div>
+                <div class="summary-row"><span id="tax-label">VAT (16%)</span><span id="tax-display">K 0.00</span></div>
+                <div class="summary-row total"><span>TOTAL</span><span id="total-display">K 0.00</span></div>
                 <div class="payment-input">
-                  <label><i class='bx bx-money'></i> Amount Received (K)</label>
+                  <label><i class='bx bx-money'></i> <span id="amount-paid-label">Amount Received (K)</span></label>
                   <input type="number" id="amount-paid" placeholder="0.00" step="0.01" oninput="renderCart()" />
                 </div>
-                <div class="summary-row change"><span>Change Due</span><span>K <span id="change">0.00</span></span></div>
+                <div class="summary-row change"><span>Change Due</span><span id="change-display">K 0.00</span></div>
                 <div class="cart-actions">
                   <button onclick="clearCart()" class="btn btn-secondary">
                     <i class='bx bx-trash'></i> Clear
@@ -373,7 +375,7 @@
                 <input type="text" id="new-name" placeholder="e.g., Coca-Cola 500ml" />
               </div>
               <div class="form-field">
-                <label>Price (K)</label>
+                <label>Price</label>
                 <input type="number" id="new-price" placeholder="0.00" step="0.01" />
               </div>
               <div class="form-field">
@@ -382,7 +384,7 @@
               </div>
               <div class="form-field">
                 <label>Low Stock Alert</label>
-                <input type="number" id="new-threshold" placeholder="10" value="10" />
+                <input type="number" id="new-threshold" placeholder="10" value="10" title="Alert when stock falls below this number" />
               </div>
               <div class="form-field">
                 <label>&nbsp;</label>
@@ -401,7 +403,7 @@
                   <tr>
                     <th>SKU</th>
                     <th>Product Name</th>
-                    <th>Price (K)</th>
+                    <th>Price</th>
                     <th>Stock</th>
                     <th>Alert At</th>
                     <th>Action</th>
@@ -429,8 +431,8 @@
                     <th>Date & Time</th>
                     <th>Cashier</th>
                     <th>Items</th>
-                    <th>Total (K)</th>
-                    <th>Paid (K)</th>
+                    <th>Total</th>
+                    <th>Paid</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -460,7 +462,7 @@
               <div class="stat-icon"><i class='bx bx-dollar-circle'></i></div>
               <div class="stat-details">
                 <small>Total Revenue</small>
-                <h2>K <span id="report-revenue">0.00</span></h2>
+                <h2><span id="report-revenue">0.00</span></h2>
               </div>
             </div>
             <div class="stat-card gradient-purple">
@@ -481,7 +483,7 @@
               <div class="stat-icon"><i class='bx bx-trending-up'></i></div>
               <div class="stat-details">
                 <small>Avg Order Value</small>
-                <h2>K <span id="report-avg">0.00</span></h2>
+                <h2><span id="report-avg">0.00</span></h2>
               </div>
             </div>
           </div>
@@ -517,7 +519,7 @@
               <div class="stat-icon"><i class='bx bx-dollar-circle'></i></div>
               <div class="stat-details">
                 <small>Today's Sales</small>
-                <h2>K <span id="stat-today-sales">0.00</span></h2>
+                <h2><span id="stat-today-sales">0.00</span></h2>
               </div>
             </div>
             <div class="stat-card gradient-purple">
@@ -778,7 +780,7 @@
   <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="app.js?v=16"></script>
+  <script src="app.js?v=17"></script>
   
   <script>
     // Register Service Worker for offline support
@@ -787,18 +789,10 @@
         navigator.serviceWorker.register('./service-worker.js')
           .then(reg => {
             console.log('✓ Service Worker registered:', reg.scope);
-            
-            // Check for updates every hour
-            setInterval(() => {
-              reg.update();
-            }, 3600000);
+            setInterval(() => { reg.update(); }, 3600000);
           })
-          .catch(err => {
-            console.log('✗ Service Worker registration failed:', err);
-          });
+          .catch(err => { console.log('✗ Service Worker registration failed:', err); });
       });
-      
-      // Reload page when new service worker takes over
       let refreshing = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (refreshing) return;
@@ -806,14 +800,6 @@
         window.location.reload();
       });
     }
-    
-    // Install prompt for PWA
-    let deferredPrompt;
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-      console.log('✓ App can be installed');
-    });
   </script>
 </body>
 </html>

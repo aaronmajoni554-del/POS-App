@@ -145,6 +145,7 @@ async function showPOS() {
   if (currentOrg?.currency) CURRENCY = currentOrg.currency;
   applyRolePermissions();
   updateLowStockBadge();
+  renderCart(); // Force render to apply updated text
 }
 
 function applyRolePermissions() {
@@ -313,42 +314,52 @@ async function login() {
 async function logout() { await auth.signOut(); cart = []; products = []; currentUser = null; currentUserData = null; currentOrgId = null; currentOrg = null; showLogin(); }
 
 // ==========================================
-// LOAD USER DATA (WITH RETRY)
+// LOAD USER DATA (RACE CONDITION FIX + OFFLINE)
 // ==========================================
 async function loadUserData() {
   if (!currentUser) return;
   
-  let userDoc = null;
-  let retries = 5;
-  
-  while (retries > 0) {
-    try {
-      userDoc = await db.collection('users').doc(currentUser.uid).get();
-      if (userDoc.exists) break;
-    } catch (err) {
-      console.log('User doc retry:', err);
+  try {
+    let userDoc = await db.collection('users').doc(currentUser.uid).get();
+    
+    // Only retry if we are online and profile doesn't exist yet (new signup)
+    if (!userDoc.exists && isOnline) {
+      let retries = 5;
+      while (retries > 0 && !userDoc.exists) {
+        console.log(`Waiting for profile creation... (${retries} retries left)`);
+        await new Promise(res => setTimeout(res, 800));
+        userDoc = await db.collection('users').doc(currentUser.uid).get();
+        retries--;
+      }
     }
-    console.log(`Waiting for profile creation... (${retries} retries left)`);
-    await new Promise(res => setTimeout(res, 800));
-    retries--;
-  }
 
-  if (!userDoc || !userDoc.exists) { 
-    showToast('Error', 'User profile not found. Please sign in.', 'error'); 
-    logout(); 
-    return; 
+    if (!userDoc.exists) { 
+      if (isOnline) {
+        showToast('Error', 'User profile not found', 'error'); 
+        logout(); 
+      }
+      return; 
+    }
+    
+    currentUserData = userDoc.data();
+    currentOrgId = currentUserData.organizationId;
+    
+    const orgDoc = await db.collection('organizations').doc(currentOrgId).get();
+    currentOrg = orgDoc.data();
+    
+    document.getElementById('business-name').textContent = currentOrg?.name || 'POS';
+    document.getElementById('user-name').textContent = currentUserData.fullName;
+    document.getElementById('user-role').textContent = currentUserData.role;
+    document.getElementById('user-avatar').textContent = currentUserData.fullName.charAt(0).toUpperCase();
+    
+    applyRolePermissions();
+  } catch (err) {
+    console.error('Load user error:', err);
+    if (!isOnline) {
+      showToast('Offline', 'Using cached profile', 'info');
+    }
   }
-  
-  currentUserData = userDoc.data();
-  currentOrgId = currentUserData.organizationId;
-  const orgDoc = await db.collection('organizations').doc(currentOrgId).get();
-  currentOrg = orgDoc.data();
-  document.getElementById('business-name').textContent = currentOrg?.name || 'POS';
-  document.getElementById('user-name').textContent = currentUserData.fullName;
-  document.getElementById('user-role').textContent = currentUserData.role;
-  document.getElementById('user-avatar').textContent = currentUserData.fullName.charAt(0).toUpperCase();
 }
-
 // ==========================================
 // STAFF MANAGEMENT
 // ==========================================
@@ -605,14 +616,21 @@ function renderCart() {
   const cartCountEl = document.getElementById('cart-count');
   if (cartCountEl) cartCountEl.textContent = `${cart.reduce((s,i)=>s+i.qty,0)} items`;
   container.innerHTML = cart.map(i => `<div class="cart-row"><span class="name">${escapeHtml(i.name)}</span><div class="qty-controls"><button onclick="updateQty('${i.id}', -1)">−</button><span>${i.qty}</span><button onclick="updateQty('${i.id}', 1)">+</button></div><span class="item-total">${money(i.price * i.qty)}</span><button class="remove" onclick="removeItem('${i.id}')"><i class='bx bx-x'></i></button></div>`).join('') || '<div class="cart-empty"><i class="bx bx-cart"></i><p>Cart is empty</p><small>Click a product to add it</small></div>';
+  
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
   const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
-  document.getElementById('subtotal').textContent = moneyValue(subtotal);
-  document.getElementById('tax').textContent = moneyValue(tax);
-  document.getElementById('total').textContent = moneyValue(total);
-  document.getElementById('change').textContent = moneyValue(Math.max(0, paid - total));
+  
+  const taxLabel = document.getElementById('tax-label');
+  if (taxLabel) taxLabel.textContent = `VAT (${(TAX_RATE * 100).toFixed(0)}%)`;
+  const amountPaidLabel = document.getElementById('amount-paid-label');
+  if (amountPaidLabel) amountPaidLabel.textContent = `Amount Received (${CURRENCY})`;
+
+  document.getElementById('subtotal-display').textContent = money(subtotal);
+  document.getElementById('tax-display').textContent = money(tax);
+  document.getElementById('total-display').textContent = money(total);
+  document.getElementById('change-display').textContent = money(Math.max(0, paid - total));
 }
 
 function clearCart() { cart = []; document.getElementById('amount-paid').value = ''; renderCart(); }
@@ -629,7 +647,7 @@ function handleSkuEnter(e) {
 }
 
 // ==========================================
-// COMPLETE SALE - OFFLINE FRIENDLY
+// COMPLETE SALE - FIXED OFFLINE CART CLEARING
 // ==========================================
 async function completeSale(event) {
   const btn = event ? event.target.closest('button') : document.querySelector('.btn-success');
@@ -657,7 +675,6 @@ async function completeSale(event) {
 
   const savedCart = [...cart];
 
-  // OFFLINE MODE
   if (!isOnline) {
     try {
       db.collection('organizations').doc(currentOrgId).collection('orders').add(orderData);
@@ -678,15 +695,10 @@ async function completeSale(event) {
     
     cart = [];
     document.getElementById('amount-paid').value = '';
-    setTimeout(() => {
-      renderCart();
-      renderProducts();
-      updateLowStockBadge();
-    }, 100);
+    setTimeout(() => { renderCart(); renderProducts(); updateLowStockBadge(); }, 100);
     return;
   }
   
-  // ONLINE MODE
   try {
     await db.collection('organizations').doc(currentOrgId).collection('orders').add(orderData);
     const batch = db.batch();
@@ -705,7 +717,6 @@ async function completeSale(event) {
     await loadProducts();
     updateLowStockBadge();
   } catch (err) {
-    console.error('Sale error:', err);
     if (!isOnline || err.message.includes('offline') || err.message.includes('network') || err.code === 'unavailable') {
       savedCart.forEach(item => {
         const p = products.find(pr => pr.id === item.id);
@@ -715,11 +726,7 @@ async function completeSale(event) {
       showReceiptModal(orderData);
       cart = [];
       document.getElementById('amount-paid').value = '';
-      setTimeout(() => {
-        renderCart();
-        renderProducts();
-        updateLowStockBadge();
-      }, 100);
+      setTimeout(() => { renderCart(); renderProducts(); updateLowStockBadge(); }, 100);
     } else {
       showToast('Error', err.message, 'error');
     }
@@ -808,74 +815,9 @@ async function loadDashboard() {
     document.getElementById('staff-performance').innerHTML = sortedStaff.length === 0 ? '<p style="color:var(--gray-500);text-align:center;padding:20px;">No sales today</p>' : sortedStaff.map((s, i) => { const rc = i < 3 ? `rank-${i + 1}` : ''; const ri = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1; return `<div class="staff-performance-item"><div class="staff-rank ${rc}">${ri}</div><div class="staff-avatar-small">${s.name.charAt(0).toUpperCase()}</div><div class="staff-performance-details"><div class="staff-performance-name">${escapeHtml(s.name)}</div><div class="staff-performance-meta">${s.count} sale${s.count !== 1 ? 's' : ''}</div></div><div class="staff-performance-total">${money(s.total)}</div></div>`; }).join('');
     const recentSnap = await db.collection('organizations').doc(currentOrgId).collection('orders').orderBy('createdAt', 'desc').limit(5).get();
     const items = [];
-    recentSnap.forEach(doc => { const o = doc.data(); const date = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('en-ZM') : 'Pending'; const ic = (o.items || []).reduce((s, i) => s + i.qty, 0); items.push(`<div style="padding:14px 0;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;"><div><div style="font-weight:600;font-size:14px;">Sale of ${ic} items by ${escapeHtml(o.cashierName || 'Unknown')}</div><small>${date}</small></div><div style="font-weight:700;color:var(--success);font-size:16px;">${money(o.total)}</div></div>`); });
+    recentSnap.forEach(doc => { const o = doc.data(); const date = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('en-ZM') : 'Pending sync'; const ic = (o.items || []).reduce((s, i) => s + i.qty, 0); items.push(`<div style="padding:14px 0;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;"><div><div style="font-weight:600;font-size:14px;">Sale of ${ic} items by ${escapeHtml(o.cashierName || 'Unknown')}</div><small>${date}</small></div><div style="font-weight:700;color:var(--success);font-size:16px;">${money(o.total)}</div></div>`); });
     document.getElementById('recent-activity').innerHTML = items.join('') || '<p style="text-align:center;padding:20px;">No activity yet</p>';
   } catch (err) { console.error('Dashboard:', err); }
-}
-
-// ==========================================
-// DARK MODE & THEME
-// ==========================================
-function toggleDarkMode() {
-  const isDark = document.body.classList.toggle('dark-mode');
-  localStorage.setItem('darkMode', isDark ? 'on' : 'off');
-  document.querySelectorAll('#theme-btn i, #theme-btn-mobile i').forEach(icon => { if (isDark) { icon.classList.remove('bx-moon'); icon.classList.add('bx-sun'); } else { icon.classList.remove('bx-sun'); icon.classList.add('bx-moon'); } });
-  if (document.getElementById('reports-tab').classList.contains('active')) { const af = document.querySelector('.filter-btn.active'); if (af) loadReports(af.id.replace('filter-', '')); }
-  showToast(isDark ? 'Dark Mode' : 'Light Mode', 'Enabled', 'info');
-}
-
-function loadDarkModePreference() {
-  if (localStorage.getItem('darkMode') === 'on') { document.body.classList.add('dark-mode'); document.querySelectorAll('#theme-btn i, #theme-btn-mobile i').forEach(icon => { icon.classList.remove('bx-moon'); icon.classList.add('bx-sun'); }); }
-}
-
-function setThemeColor(color) {
-  document.documentElement.style.setProperty('--primary', color);
-  document.documentElement.style.setProperty('--primary-dark', shadeColor(color, -15));
-  document.documentElement.style.setProperty('--primary-light', shadeColor(color, 40));
-  localStorage.setItem('themeColor', color);
-  if (currentOrgId) db.collection('organizations').doc(currentOrgId).update({ themeColor: color }).catch(() => {});
-  document.querySelectorAll('.color-swatch').forEach(sw => sw.classList.toggle('active', sw.dataset.color === color));
-}
-
-function shadeColor(color, percent) {
-  let R = parseInt(color.substring(1,3), 16), G = parseInt(color.substring(3,5), 16), B = parseInt(color.substring(5,7), 16);
-  R = Math.min(255, Math.max(0, parseInt(R * (100 + percent) / 100)));
-  G = Math.min(255, Math.max(0, parseInt(G * (100 + percent) / 100)));
-  B = Math.min(255, Math.max(0, parseInt(B * (100 + percent) / 100)));
-  return '#' + R.toString(16).padStart(2, '0') + G.toString(16).padStart(2, '0') + B.toString(16).padStart(2, '0');
-}
-
-// ==========================================
-// SETTINGS
-// ==========================================
-function loadSettings() {
-  if (!currentOrg) return;
-  document.getElementById('setting-biz-name').value = currentOrg.name || '';
-  document.getElementById('setting-phone').value = currentOrg.phone || '';
-  document.getElementById('setting-address').value = currentOrg.address || '';
-  document.getElementById('setting-email').value = currentOrg.email || '';
-  document.getElementById('setting-tax').value = ((currentOrg.taxRate || TAX_RATE) * 100).toFixed(2);
-  document.getElementById('setting-currency').value = currentOrg.currency || CURRENCY;
-  const color = currentOrg.themeColor || '#6366f1';
-  document.querySelectorAll('.color-swatch').forEach(sw => sw.classList.toggle('active', sw.dataset.color === color));
-}
-
-async function saveBusinessInfo() {
-  const name = document.getElementById('setting-biz-name').value.trim();
-  const phone = document.getElementById('setting-phone').value.trim();
-  const address = document.getElementById('setting-address').value.trim();
-  const email = document.getElementById('setting-email').value.trim();
-  if (!name) { showToast('Error', 'Business name required', 'error'); return; }
-  try { await db.collection('organizations').doc(currentOrgId).update({ name, phone, address, email }); currentOrg.name = name; currentOrg.phone = phone; currentOrg.address = address; currentOrg.email = email; document.getElementById('business-name').textContent = name; showToast('Success', 'Updated', 'success'); }
-  catch (err) { showToast('Error', err.message, 'error'); }
-}
-
-async function saveTaxSettings() {
-  const taxPercent = parseFloat(document.getElementById('setting-tax').value);
-  const currency = document.getElementById('setting-currency').value.trim() || 'K';
-  if (isNaN(taxPercent) || taxPercent < 0 || taxPercent > 100) { showToast('Error', 'Valid tax rate (0-100)', 'error'); return; }
-  try { await db.collection('organizations').doc(currentOrgId).update({ taxRate: taxPercent / 100, currency }); currentOrg.taxRate = taxPercent / 100; currentOrg.currency = currency; TAX_RATE = taxPercent / 100; CURRENCY = currency; renderCart(); renderProducts(); showToast('Success', 'Updated', 'success'); }
-  catch (err) { showToast('Error', err.message, 'error'); }
 }
 
 // ==========================================
@@ -951,7 +893,7 @@ function closeScanner() {
 }
 
 // ==========================================
-// RECEIPT
+// RECEIPT GENERATION
 // ==========================================
 function generateReceiptHTML(orderData) {
   const date = new Date();
