@@ -313,7 +313,7 @@ async function login() {
 async function logout() { await auth.signOut(); cart = []; products = []; currentUser = null; currentUserData = null; currentOrgId = null; currentOrg = null; showLogin(); }
 
 // ==========================================
-// LOAD USER DATA (WITH RETRY FOR RACE CONDITION)
+// LOAD USER DATA (WITH RETRY)
 // ==========================================
 async function loadUserData() {
   if (!currentUser) return;
@@ -321,13 +321,15 @@ async function loadUserData() {
   let userDoc = null;
   let retries = 5;
   
-  // Retry loop: wait for Firestore document creation during new signups
   while (retries > 0) {
-    userDoc = await db.collection('users').doc(currentUser.uid).get();
-    if (userDoc.exists) break;
-    
-    console.log(`Waiting for user profile creation... (${retries} retries left)`);
-    await new Promise(res => setTimeout(res, 800)); // wait 800ms
+    try {
+      userDoc = await db.collection('users').doc(currentUser.uid).get();
+      if (userDoc.exists) break;
+    } catch (err) {
+      console.log('User doc retry:', err);
+    }
+    console.log(`Waiting for profile creation... (${retries} retries left)`);
+    await new Promise(res => setTimeout(res, 800));
     retries--;
   }
 
@@ -339,10 +341,8 @@ async function loadUserData() {
   
   currentUserData = userDoc.data();
   currentOrgId = currentUserData.organizationId;
-  
   const orgDoc = await db.collection('organizations').doc(currentOrgId).get();
   currentOrg = orgDoc.data();
-  
   document.getElementById('business-name').textContent = currentOrg?.name || 'POS';
   document.getElementById('user-name').textContent = currentUserData.fullName;
   document.getElementById('user-role').textContent = currentUserData.role;
