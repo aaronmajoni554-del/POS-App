@@ -312,21 +312,43 @@ async function login() {
 
 async function logout() { await auth.signOut(); cart = []; products = []; currentUser = null; currentUserData = null; currentOrgId = null; currentOrg = null; showLogin(); }
 
+// ==========================================
+// LOAD USER DATA (WITH RETRY FOR RACE CONDITION)
+// ==========================================
 async function loadUserData() {
   if (!currentUser) return;
-  try {
-    const userDoc = await db.collection('users').doc(currentUser.uid).get();
-    if (!userDoc.exists) { showToast('Error', 'User profile not found', 'error'); logout(); return; }
-    currentUserData = userDoc.data();
-    currentOrgId = currentUserData.organizationId;
-    const orgDoc = await db.collection('organizations').doc(currentOrgId).get();
-    currentOrg = orgDoc.data();
-    document.getElementById('business-name').textContent = currentOrg?.name || 'POS';
-    document.getElementById('user-name').textContent = currentUserData.fullName;
-    document.getElementById('user-role').textContent = currentUserData.role;
-    document.getElementById('user-avatar').textContent = currentUserData.fullName.charAt(0).toUpperCase();
-  } catch (err) { console.error('Load user error:', err); }
+  
+  let userDoc = null;
+  let retries = 5;
+  
+  // Retry loop: wait for Firestore document creation during new signups
+  while (retries > 0) {
+    userDoc = await db.collection('users').doc(currentUser.uid).get();
+    if (userDoc.exists) break;
+    
+    console.log(`Waiting for user profile creation... (${retries} retries left)`);
+    await new Promise(res => setTimeout(res, 800)); // wait 800ms
+    retries--;
+  }
+
+  if (!userDoc || !userDoc.exists) { 
+    showToast('Error', 'User profile not found. Please sign in.', 'error'); 
+    logout(); 
+    return; 
+  }
+  
+  currentUserData = userDoc.data();
+  currentOrgId = currentUserData.organizationId;
+  
+  const orgDoc = await db.collection('organizations').doc(currentOrgId).get();
+  currentOrg = orgDoc.data();
+  
+  document.getElementById('business-name').textContent = currentOrg?.name || 'POS';
+  document.getElementById('user-name').textContent = currentUserData.fullName;
+  document.getElementById('user-role').textContent = currentUserData.role;
+  document.getElementById('user-avatar').textContent = currentUserData.fullName.charAt(0).toUpperCase();
 }
+
 // ==========================================
 // STAFF MANAGEMENT
 // ==========================================
@@ -633,7 +655,6 @@ async function completeSale(event) {
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   };
 
-  // Save the cart items before clearing (for receipt)
   const savedCart = [...cart];
 
   // OFFLINE MODE
@@ -655,7 +676,6 @@ async function completeSale(event) {
     showToast('Sale Complete! ✓ (Offline)', `Total: ${money(total)} | Change: ${money(paid - total)}`, 'success');
     showReceiptModal(orderData);
     
-    // FORCE clear cart
     cart = [];
     document.getElementById('amount-paid').value = '';
     setTimeout(() => {
@@ -679,7 +699,6 @@ async function completeSale(event) {
     showToast('Sale Complete! ✓', `Total: ${money(total)} | Change: ${money(paid - total)}`, 'success');
     showReceiptModal(orderData);
     
-    // Clear cart
     cart = [];
     document.getElementById('amount-paid').value = '';
     renderCart();
