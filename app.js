@@ -36,7 +36,7 @@ let currentUserData = null;
 let currentOrgId = null;
 let currentOrg = null;
 let saleInProgress = false;
-let registrationInProgress = false; // <-- NEW: Prevents race condition during signup
+let isRegistering = false; // NEW: Prevents auth observer race conditions
 let codeReader = null;
 let currentReceipt = null;
 let currentStream = null;
@@ -246,123 +246,165 @@ async function sendPasswordReset() {
 }
 
 // ==========================================
-// AUTH - FIXED FOR RACE CONDITION
+// AUTH - FIXED SIGNUP
 // ==========================================
 async function signup(event) {
   const btn = event ? event.target.closest('button') : document.querySelector('#signup-screen button.btn-primary');
   if (isButtonLocked(btn)) return;
   if (!isOnline) { document.getElementById('signup-msg').textContent = '⚠️ Sign up requires internet'; return; }
+  
   lockButton(btn, 5000);
   btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Creating...';
+  
   const orgName = document.getElementById('org-name').value.trim();
   const fullName = document.getElementById('full-name').value.trim();
   const email = document.getElementById('signup-email').value.trim();
   const password = document.getElementById('signup-password').value;
   const msg = document.getElementById('signup-msg');
   msg.className = 'msg';
-  if (!orgName || !fullName || !email || !password) { msg.textContent = 'Please fill all fields'; return; }
-  if (password.length < 6) { msg.textContent = 'Password must be at least 6 characters'; return; }
+  
+  if (!orgName || !fullName || !email || !password) { 
+    msg.textContent = 'Please fill all fields'; 
+    return; 
+  }
+  if (password.length < 6) { 
+    msg.textContent = 'Password must be at least 6 characters'; 
+    return; 
+  }
   
   msg.textContent = 'Creating account...';
-  registrationInProgress = true; // Lock auth state listener
+  isRegistering = true; // Block auth state observer temporarily
   
+  let userCred = null;
   try {
-    const userCred = await auth.createUserWithEmailAndPassword(email, password);
+    // 1. Create the Auth account
+    userCred = await auth.createUserWithEmailAndPassword(email, password);
     const uid = userCred.user.uid;
     
-    // 1. Create organization first
-    const orgRef = await db.collection('organizations').add({ 
-      name: orgName, 
-      email, 
-      ownerId: uid, 
-      taxRate: TAX_RATE, 
-      currency: CURRENCY, 
-      country: 'Zambia', 
-      themeColor: '#6366f1', 
-      createdAt: firebase.firestore.FieldValue.serverTimestamp() 
-    });
-    
-    // 2. Create user profile
-    await db.collection('users').doc(uid).set({ 
-      fullName, 
-      email, 
-      organizationId: orgRef.id, 
-      role: 'admin', 
-      createdAt: firebase.firestore.FieldValue.serverTimestamp() 
-    });
-    
-    msg.className = 'msg success';
-    msg.textContent = '✓ Account created! Loading...';
-    
-    // Unlock and manually go to POS
-    registrationInProgress = false;
-    currentUser = userCred.user;
-    await showPOS();
-  } catch (err) { 
-    registrationInProgress = false;
-    // If Firestore write failed but Auth succeeded, clean up the orphan auth account
-    if (auth.currentUser && err.code !== 'auth/email-already-in-use') {
-      try { await auth.currentUser.delete(); } catch (e) { console.log('Could not clean up:', e); }
+    try {
+      // 2. Create the organization document
+      const orgRef = await db.collection('organizations').add({ 
+        name: orgName, 
+        email, 
+        ownerId: uid, 
+        taxRate: TAX_RATE, 
+        currency: CURRENCY, 
+        country: 'Zambia', 
+        themeColor: '#6366f1', 
+        createdAt: firebase.firestore.FieldValue.serverTimestamp() 
+      });
+      
+      // 3. Create the user profile document
+      await db.collection('users').doc(uid).set({ 
+        fullName, 
+        email, 
+        organizationId: orgRef.id, 
+        role: 'admin', 
+        createdAt: firebase.firestore.FieldValue.serverTimestamp() 
+      });
+      
+      msg.className = 'msg success';
+      msg.textContent = '✓ Account created! Loading...';
+      
+      // 4. Safely initialize and direct them to the app
+      currentUser = userCred.user;
+      isRegistering = false;
+      await showPOS();
+      
+    } catch (dbErr) {
+      // CRITICAL: Clean up! If Firestore fails, delete the Auth account 
+      // to prevent "bricked" users that can never log in.
+      console.error('Database write failed, cleaning up auth account:', dbErr);
+      if (userCred && userCred.user) {
+        try { 
+          await userCred.user.delete(); 
+        } catch (delErr) { 
+          console.error('Failed to delete auth account:', delErr); 
+        }
+      }
+      isRegistering = false;
+      throw new Error("Database initialization failed. Please try again.");
     }
+  } catch (err) { 
+    isRegistering = false;
     msg.textContent = err.code === 'auth/network-request-failed' ? 'No internet connection.' : err.message; 
   }
 }
 
+// ==========================================
+// AUTH - FIXED JOIN WITH CODE
+// ==========================================
 async function joinWithCode(event) {
   const btn = event ? event.target.closest('button') : document.querySelector('#join-screen button.btn-primary');
   if (isButtonLocked(btn)) return;
   if (!isOnline) { document.getElementById('join-msg').textContent = '⚠️ Join requires internet'; return; }
+  
   lockButton(btn, 5000);
   btn.innerHTML = '<i class="bx bx-loader bx-spin"></i> Joining...';
+  
   const code = document.getElementById('invite-code').value.trim().toUpperCase();
   const password = document.getElementById('join-password').value;
   const msg = document.getElementById('join-msg');
   msg.className = 'msg';
+  
   if (!code || !password) { msg.textContent = 'Please enter code and password'; return; }
   if (password.length < 6) { msg.textContent = 'Password must be at least 6 characters'; return; }
   
   msg.textContent = 'Verifying...';
-  registrationInProgress = true; // Lock auth state listener
+  isRegistering = true; // Block auth state observer
   
+  let userCred = null;
   try {
     const inviteSnap = await db.collection('invitations').where('code', '==', code).where('status', '==', 'pending').limit(1).get();
     if (inviteSnap.empty) { 
+      isRegistering = false; 
       msg.textContent = 'Invalid or expired invite code'; 
-      registrationInProgress = false;
       return; 
     }
+    
     const inviteDoc = inviteSnap.docs[0];
     const invite = inviteDoc.data();
+    
     msg.textContent = 'Creating account...';
+    userCred = await auth.createUserWithEmailAndPassword(invite.email, password);
+    const uid = userCred.user.uid;
     
-    const userCred = await auth.createUserWithEmailAndPassword(invite.email, password);
-    
-    await db.collection('users').doc(userCred.user.uid).set({ 
-      fullName: invite.fullName, 
-      email: invite.email, 
-      organizationId: invite.organizationId, 
-      role: invite.role, 
-      createdAt: firebase.firestore.FieldValue.serverTimestamp() 
-    });
-    
-    await db.collection('invitations').doc(inviteDoc.id).update({ 
-      status: 'accepted', 
-      acceptedAt: firebase.firestore.FieldValue.serverTimestamp(), 
-      acceptedBy: userCred.user.uid 
-    });
-    
-    msg.className = 'msg success';
-    msg.textContent = `✓ Welcome to ${invite.orgName}!`;
-    
-    // Unlock and manually go to POS
-    registrationInProgress = false;
-    currentUser = userCred.user;
-    await showPOS();
-  } catch (err) { 
-    registrationInProgress = false;
-    if (auth.currentUser && err.code !== 'auth/email-already-in-use') {
-      try { await auth.currentUser.delete(); } catch (e) { console.log('Could not clean up:', e); }
+    try {
+      await db.collection('users').doc(uid).set({ 
+        fullName: invite.fullName, 
+        email: invite.email, 
+        organizationId: invite.organizationId, 
+        role: invite.role, 
+        createdAt: firebase.firestore.FieldValue.serverTimestamp() 
+      });
+      
+      await db.collection('invitations').doc(inviteDoc.id).update({ 
+        status: 'accepted', 
+        acceptedAt: firebase.firestore.FieldValue.serverTimestamp(), 
+        acceptedBy: uid 
+      });
+      
+      msg.className = 'msg success';
+      msg.textContent = `✓ Welcome to ${invite.orgName}!`;
+      
+      currentUser = userCred.user;
+      isRegistering = false;
+      await showPOS();
+      
+    } catch (dbErr) {
+      console.error('Database write failed, cleaning up auth account:', dbErr);
+      if (userCred && userCred.user) {
+        try { 
+          await userCred.user.delete(); 
+        } catch (delErr) { 
+          console.error('Failed to delete auth account:', delErr); 
+        }
+      }
+      isRegistering = false;
+      throw new Error("Could not join workspace. Please try again.");
     }
+  } catch (err) { 
+    isRegistering = false;
     msg.textContent = err.code === 'auth/email-already-in-use' ? 'Email already registered. Please sign in.' : err.message; 
   }
 }
@@ -383,23 +425,12 @@ async function logout() { await auth.signOut(); cart = []; products = []; curren
 async function loadUserData() {
   if (!currentUser) return;
   try {
-    let userDoc = await db.collection('users').doc(currentUser.uid).get();
-    
-    // If profile not found and registration is in progress, retry a few times
-    if (!userDoc.exists && registrationInProgress) {
-      for (let i = 0; i < 5; i++) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        userDoc = await db.collection('users').doc(currentUser.uid).get();
-        if (userDoc.exists) break;
-      }
-    }
-    
+    const userDoc = await db.collection('users').doc(currentUser.uid).get();
     if (!userDoc.exists) { 
       showToast('Error', 'User profile not found', 'error'); 
       logout(); 
       return; 
     }
-    
     currentUserData = userDoc.data();
     currentOrgId = currentUserData.organizationId;
     const orgDoc = await db.collection('organizations').doc(currentOrgId).get();
@@ -719,6 +750,7 @@ async function completeSale(event) {
 
   const savedCart = [...cart];
 
+  // OFFLINE MODE
   if (!isOnline) {
     try {
       db.collection('organizations').doc(currentOrgId).collection('orders').add(orderData);
@@ -747,6 +779,7 @@ async function completeSale(event) {
     return;
   }
   
+  // ONLINE MODE
   try {
     await db.collection('organizations').doc(currentOrgId).collection('orders').add(orderData);
     const batch = db.batch();
@@ -1100,14 +1133,15 @@ function escapeHtml(str) {
 }
 
 // ==========================================
-// AUTO LOGIN CHECK - FIXED FOR RACE CONDITION
+// AUTO LOGIN CHECK - FIXED
 // ==========================================
 auth.onAuthStateChanged(async (user) => {
   if (user) { 
     currentUser = user; 
-    // Don't show POS if we're in the middle of creating an account
-    // (signup/joinWithCode will handle showing POS after Firestore writes complete)
-    if (!registrationInProgress) {
+    // Skip auto-routing if a registration is currently in progress.
+    // The signup/join functions handle screen navigation manually after all 
+    // database writes are confirmed.
+    if (!isRegistering) {
       await showPOS(); 
     }
   }
